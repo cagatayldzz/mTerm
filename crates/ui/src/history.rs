@@ -1,9 +1,10 @@
 use crate::{
-  workspace::{Workspace, HEADER_HEIGHT, SIDEBAR_WIDTH},
+  workspace::{Workspace, SIDEBAR_WIDTH, TOOLBAR_HEIGHT},
   ToggleSidebar,
 };
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-  component::{h_flex, v_flex, ActiveTheme, Icon, IconName, Sizable},
+  component::{h_flex, v_flex, ActiveTheme, Icon, IconName, Sizable, TitleBar},
   *,
 };
 
@@ -49,23 +50,30 @@ impl Workspace {
       .bg(theme.sidebar)
       .border_r_1()
       .border_color(theme.sidebar_border)
+      // The sidebar runs to the top of the window; this band holds the traffic lights.
+      .child(TitleBar::new().h(TOOLBAR_HEIGHT).bg(transparent_black()).border_b_0())
       .child(
         h_flex()
-          .h(HEADER_HEIGHT)
+          .h(px(28.))
           .px_3()
           .items_center()
           .justify_between()
-          .child(
-            h_flex()
-              .gap_2()
-              .items_center()
-              .child(sidebar_toggle(IconName::PanelLeftClose, "Hide history (⌘B)"))
-              .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.foreground).child("History")),
-          )
-          .child(icon_button("clear-history", IconName::Delete, "Clear history", cx.listener(|this, _, _, cx| this.clear_history(cx)))),
+          .child(div().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("HISTORY"))
+          .when(!empty, |this| {
+            this.child(icon_button("clear-history", IconName::Delete, "Clear history", cx.listener(|this, _, _, cx| this.clear_history(cx))))
+          }),
       )
       .child(if empty {
-        div().px_3().text_size(px(12.)).text_color(theme.muted_foreground).child("Commands you run will appear here.").into_any_element()
+        v_flex()
+          .flex_1()
+          .items_center()
+          .justify_center()
+          .pb(px(80.))
+          .gap_2()
+          .text_color(theme.muted_foreground.opacity(0.7))
+          .child(Icon::new(IconName::SquareTerminal).with_size(component::Size::Size(px(28.))))
+          .child(div().text_size(px(12.)).child("No commands yet"))
+          .into_any_element()
       } else {
         v_flex().id("history-list").flex_1().min_h_0().px_2().pb_2().gap(px(1.)).overflow_y_scroll().children(items).into_any_element()
       })
@@ -97,7 +105,7 @@ pub(crate) fn icon_button(
     .child(Icon::new(icon).with_size(component::Size::Size(px(20.))))
 }
 
-/// The sidebar toggle. It sits in the sidebar header when open and in the page when closed.
+/// The sidebar toggle, always at the left of the header row.
 pub(crate) fn sidebar_toggle(icon: IconName, tooltip: &'static str) -> impl IntoElement {
   icon_button("toggle-sidebar", icon, tooltip, |_, window, cx| window.dispatch_action(Box::new(ToggleSidebar), cx))
 }

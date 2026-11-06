@@ -1,7 +1,6 @@
 use crate::{
   layout::{Node, PaneId, Split},
-  tabs::TAB_BAR_HEIGHT,
-  workspace::{Workspace, HEADER_HEIGHT, SIDEBAR_WIDTH, TOOLBAR_HEIGHT},
+  workspace::{Workspace, SIDEBAR_WIDTH, TOOLBAR_HEIGHT},
   ClearScreen, ClosePane, NewTab, NewWindow, Paste, SplitHorizontally, SplitVertically,
 };
 use gpui_kit::prelude::FluentBuilder as _;
@@ -14,7 +13,9 @@ use mterm_terminal::{Palette, Rgb, Snapshot};
 const FONT_FAMILY: &str = "Menlo";
 const FONT_SIZE: Pixels = px(13.);
 const LINE_HEIGHT: Pixels = px(17.);
-const PADDING: Pixels = px(8.);
+const PADDING: Pixels = px(12.);
+/// How dark the veil over an unfocused split pane is.
+const PANE_VEIL: f32 = 0.18;
 
 fn color(rgb: Rgb) -> Hsla {
   gpui_kit::rgb(rgb.hex()).into()
@@ -43,15 +44,8 @@ impl Workspace {
     let split = root.leaves().len() > 1;
     // Panes are placed at explicit rectangles: flex percentages do not resolve reliably for nested splits.
     let sidebar = if self.sidebar_open { SIDEBAR_WIDTH } else { px(0.) };
-    let tab_bar = if self.tabs.len() > 1 {
-      TAB_BAR_HEIGHT
-    } else if self.sidebar_open {
-      px(0.)
-    } else {
-      HEADER_HEIGHT
-    };
     let viewport = window.viewport_size();
-    let area = Bounds::new(point(px(0.), px(0.)), size(viewport.width - sidebar, viewport.height - TOOLBAR_HEIGHT - tab_bar));
+    let area = Bounds::new(point(px(0.), px(0.)), size(viewport.width - sidebar, viewport.height - TOOLBAR_HEIGHT));
     let mut panes = Vec::new();
     let mut dividers = Vec::new();
     place(&root, area, &mut panes, &mut dividers);
@@ -87,7 +81,6 @@ impl Workspace {
       .h(bounds.size.height)
       .overflow_hidden()
       .bg(background)
-      .when(split && !focused, |this| this.opacity(0.7))
       .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| this.focus_pane(id, window, cx)))
       .on_mouse_down(MouseButton::Right, cx.listener(move |this, _, window, cx| this.focus_pane(id, window, cx)))
       .on_scroll(cx.listener(move |this, event: &ScrollEvent, _, cx| {
@@ -129,6 +122,8 @@ impl Workspace {
           .text_color(color(metrics.palette.foreground))
           .child(rows(&snapshot, &metrics.font)),
       )
+      // Panes other than the focused one sit under a lighter veil of the same kind.
+      .when(split && !focused, |this| this.child(div().absolute().top_0().left_0().size_full().bg(black().opacity(PANE_VEIL))))
       .context_menu(move |menu, _, _| {
         menu
           .action_context(action_context.clone())

@@ -1,4 +1,3 @@
-use crate::history::sidebar_toggle;
 use crate::{
   layout::{Node, PaneId, Split},
   ClearHistory, ClearScreen, ClosePane, NewTab, NextTab, Paste, PreviousTab, SplitHorizontally, SplitVertically, ToggleSidebar,
@@ -6,20 +5,20 @@ use crate::{
 use futures::StreamExt as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-  component::{h_flex, v_flex, ActiveTheme, IconName, Theme, TitleBar},
+  component::{h_flex, v_flex, ActiveTheme, Theme},
   *,
 };
 use mterm_storage::History;
 use mterm_terminal::{encode_key, paste_bytes, Modifiers, Palette, Session, SessionEvent, SessionOptions};
 use std::{collections::HashMap, path::PathBuf, rc::Rc};
 
-/// Height of the band that holds the traffic lights and the title.
+/// Height of the top band: the traffic lights, the toggle and the title or tabs.
 pub const TOOLBAR_HEIGHT: Pixels = px(44.);
 
 pub(crate) const SIDEBAR_WIDTH: Pixels = px(240.);
 
-/// Height of the sidebar header, and of the strip that keeps the toggle in place when the sidebar is closed.
-pub(crate) const HEADER_HEIGHT: Pixels = px(40.);
+/// How dark the veil over an inactive window is (0 is clear, 1 is black).
+pub(crate) const INACTIVE_VEIL: f32 = 0.35;
 
 /// The key context key bindings use to reach a window's workspace.
 pub const CONTEXT: &str = "Workspace";
@@ -60,10 +59,14 @@ impl Workspace {
   /// `directory` is where shells start; `None` is the home folder.
   pub fn new(directory: Option<PathBuf>, window: &mut Window, cx: &mut Context<Self>) -> Self {
     Theme::sync_system_appearance(Some(window), cx);
-    let subscriptions = vec![cx.observe_window_appearance(window, |_, window, cx| {
-      Theme::sync_system_appearance(Some(window), cx);
-      window.refresh();
-    })];
+    let subscriptions = vec![
+      cx.observe_window_appearance(window, |_, window, cx| {
+        Theme::sync_system_appearance(Some(window), cx);
+        window.refresh();
+      }),
+      // The dimming of inactive windows follows activation.
+      cx.observe_window_activation(window, |_, _, cx| cx.notify()),
+    ];
 
     let (events, mut receiver) = futures::channel::mpsc::unbounded();
     cx.spawn_in(window, async move |this, cx| {
@@ -319,53 +322,17 @@ impl Workspace {
       Palette::light()
     }
   }
-
-  fn render_toggle_strip(&self, cx: &mut Context<Self>) -> impl IntoElement {
-    h_flex()
-      .w_full()
-      .h(HEADER_HEIGHT)
-      .flex_shrink_0()
-      .px_3()
-      .items_center()
-      .bg(rgb(Self::palette(cx).background.hex()))
-      .child(sidebar_toggle(IconName::PanelLeftOpen, "Show history (⌘B)"))
-  }
-
-  fn toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-    let theme = cx.theme().clone();
-    TitleBar::new().h(TOOLBAR_HEIGHT).bg(theme.background).child(
-      h_flex().w_full().h_full().items_center().px_3().child(
-        div()
-          .flex_1()
-          .min_w_0()
-          .overflow_hidden()
-          .whitespace_nowrap()
-          .text_ellipsis()
-          .text_center()
-          .text_size(px(13.))
-          .font_weight(FontWeight::SEMIBOLD)
-          .text_color(theme.foreground.opacity(0.7))
-          .child(self.title()),
-      ),
-    )
-  }
 }
 
 impl Render for Workspace {
   fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
     let theme = cx.theme().clone();
     let content = self.render_tab_content(window, cx);
-    let many_tabs = self.tabs.len() > 1;
-    let page = v_flex()
-      .flex_1()
-      .min_w_0()
-      .h_full()
-      .when(many_tabs, |this| this.child(self.render_tab_bar(cx)))
-      // With the sidebar closed the toggle stays where it was; it shares the tab bar, or gets a strip of its own.
-      .when(!many_tabs && !self.sidebar_open, |this| this.child(self.render_toggle_strip(cx)))
-      .child(content);
-    v_flex()
+    let page = v_flex().flex_1().min_w_0().h_full().child(self.render_band(cx)).child(content);
+    let inactive = !window.is_window_active();
+    h_flex()
       .id("workspace")
+      .relative()
       .key_context(CONTEXT)
       .track_focus(&self.focus_handle)
       .on_key_down(cx.listener(Self::on_key_down))
@@ -401,7 +368,9 @@ impl Render for Workspace {
       .size_full()
       .bg(theme.background)
       .text_color(theme.foreground)
-      .child(self.toolbar(cx))
-      .child(h_flex().flex_1().min_h_0().w_full().when(self.sidebar_open, |this| this.child(self.render_history(cx))).child(page))
+      .when(self.sidebar_open, |this| this.child(self.render_history(cx)))
+      .child(page)
+      // A soft black veil over every window that is not the one in use.
+      .when(inactive, |this| this.child(div().absolute().top_0().left_0().size_full().bg(black().opacity(INACTIVE_VEIL))))
   }
 }
