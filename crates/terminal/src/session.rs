@@ -23,6 +23,8 @@ pub enum SessionEvent {
   Wakeup,
   /// The program set a window title.
   Title(String),
+  /// The shell reported its working directory.
+  Directory(PathBuf),
   /// The shell exited.
   Exit,
 }
@@ -106,6 +108,9 @@ pub struct Session {
   term: Arc<FairMutex<Term<Proxy>>>,
   sender: EventLoopSender,
   palette: Arc<Mutex<Palette>>,
+  #[cfg(unix)]
+  child_id: u32,
+  notify: Notify,
 }
 
 impl Session {
@@ -128,12 +133,21 @@ impl Session {
       ..Options::default()
     };
     let pty = tty::new(&pty_options, window_size(columns, lines), 0)?;
+    #[cfg(unix)]
+    let child_id = pty.child().id();
     // Drain on exit: output the program wrote just before it exited still reaches the screen.
     let event_loop = EventLoop::new(term.clone(), proxy.clone(), pty, true, false)?;
     let sender = event_loop.channel();
     let _ = proxy.sender.set(sender.clone());
     event_loop.spawn();
-    Ok(Self { term, sender, palette })
+    Ok(Self {
+      term,
+      sender,
+      palette,
+      #[cfg(unix)]
+      child_id,
+      notify: proxy.notify.clone(),
+    })
   }
 
   /// Sends bytes to the program, as if typed.
@@ -141,6 +155,30 @@ impl Session {
     let _ = self.sender.send(Msg::Input(bytes.into()));
     // Typing returns the view to the live output.
     self.term.lock().scroll_display(Scroll::Bottom);
+  }
+
+  /// Refreshes the shell's working directory without blocking the interface.
+  pub fn refresh_directory(&self) {
+    #[cfg(unix)]
+    {
+      let id = self.child_id;
+      let notify = self.notify.clone();
+      std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        #[cfg(target_os = "macos")]
+        let directory = std::process::Command::new("/usr/sbin/lsof")
+          .args(["-a", "-p", &id.to_string(), "-d", "cwd", "-Fn"])
+          .output()
+          .ok()
+          .and_then(|output| String::from_utf8(output.stdout).ok())
+          .and_then(|text| text.lines().find_map(|line| line.strip_prefix('n').map(PathBuf::from)));
+        #[cfg(not(target_os = "macos"))]
+        let directory = std::fs::read_link(format!("/proc/{id}/cwd")).ok();
+        if let Some(directory) = directory.filter(|path| path.is_dir()) {
+          notify(SessionEvent::Directory(directory));
+        }
+      });
+    }
   }
 
   /// Resizes the terminal and the PTY. Returns whether the size changed.

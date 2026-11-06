@@ -88,3 +88,20 @@ fn background_color_queries_use_the_session_palette() {
     assert!(!session.snapshot(&palette).text().contains("MISMATCH"));
   }
 }
+
+#[cfg(unix)]
+#[test]
+fn reports_the_shell_working_directory() {
+  let (session, receiver) = run("cd /tmp; printf ready; sleep 3");
+  wait_for_screen(&session, |snapshot| snapshot.text().contains("ready"));
+  session.refresh_directory();
+  let deadline = Instant::now() + Duration::from_secs(5);
+  let mut directory = None;
+  while Instant::now() < deadline {
+    if let Ok(SessionEvent::Directory(path)) = receiver.recv_timeout(Duration::from_millis(100)) {
+      directory = Some(path);
+      break;
+    }
+  }
+  assert_eq!(directory.unwrap().canonicalize().unwrap(), std::path::Path::new("/tmp").canonicalize().unwrap());
+}

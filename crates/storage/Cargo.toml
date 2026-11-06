@@ -9,6 +9,9 @@ description = "mTerm persistent state: data directory, window size and command h
 [package.metadata.layers]
 dependencies = []
 
+[dependencies]
+serde_json.workspace = true
+
 [lints]
 workspace = true
 

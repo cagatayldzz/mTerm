@@ -23,7 +23,7 @@ impl Workspace {
     let background = rgb(Self::palette(cx).background.hex());
     let open = self.sidebar_open;
     let icon = if open { IconName::PanelLeftClose } else { IconName::PanelLeftOpen };
-    let tooltip = if open { "Hide history (⌘B)" } else { "Show history (⌘B)" };
+    let tooltip = if open { "Hide sessions (⌘B)" } else { "Show sessions (⌘B)" };
 
     let middle = if self.tabs.len() > 1 {
       h_flex()

@@ -10,15 +10,46 @@ use gpui_kit::{
 };
 
 impl Workspace {
-  /// The sidebar: commands entered so far, newest first. Clicking one types it at the prompt.
+  /// Lists saved sessions and the active session's recorded commands.
   pub(crate) fn render_history(&self, cx: &mut Context<Self>) -> impl IntoElement {
     let theme = cx.theme().clone();
-    let items: Vec<_> = self
-      .history
-      .entries()
+    let active = self.tabs.get(self.active);
+    let active_id = active.map(|tab| tab.saved.id.as_str());
+    let sessions: Vec<_> = self
+      .saved_sessions
       .iter()
+      .map(|saved| {
+        let id = saved.id.clone();
+        let selected = active_id == Some(saved.id.as_str());
+        let directory = saved.directory.display().to_string();
+        v_flex()
+          .id(SharedString::from(format!("session-{id}")))
+          .px_2()
+          .py_1()
+          .rounded_md()
+          .cursor_pointer()
+          .min_w_0()
+          .when(selected, |this| this.bg(theme.sidebar_accent))
+          .hover(|style| style.bg(theme.sidebar_accent))
+          .text_color(theme.sidebar_foreground)
+          .child(
+            div()
+              .text_size(px(12.))
+              .font_weight(FontWeight::SEMIBOLD)
+              .overflow_hidden()
+              .whitespace_nowrap()
+              .text_ellipsis()
+              .child(saved.name.clone()),
+          )
+          .child(div().text_size(px(11.)).text_color(theme.muted_foreground).overflow_hidden().whitespace_nowrap().text_ellipsis().child(directory))
+          .on_click(cx.listener(move |this, _, window, cx| this.select_session(&id, window, cx)))
+          .into_any_element()
+      })
+      .collect();
+    let commands: Vec<_> = active
+      .into_iter()
+      .flat_map(|tab| tab.history.entries().iter().rev())
       .enumerate()
-      .rev()
       .map(|(index, command)| {
         let text = command.clone();
         div()
@@ -34,16 +65,12 @@ impl Workspace {
           .whitespace_nowrap()
           .text_ellipsis()
           .hover(|style| style.bg(theme.sidebar_accent))
-          .tooltip({
-            let text = command.clone();
-            move |window, cx| component::tooltip::Tooltip::new(text.clone()).build(window, cx)
-          })
           .child(command.clone())
           .on_click(cx.listener(move |this, _, window, cx| this.insert_text(&text, window, cx)))
+          .into_any_element()
       })
       .collect();
-    let empty = items.is_empty();
-
+    let has_commands = !commands.is_empty();
     v_flex()
       .w(SIDEBAR_WIDTH)
       .flex_shrink_0()
@@ -51,38 +78,53 @@ impl Workspace {
       .bg(theme.sidebar)
       .border_r_1()
       .border_color(theme.sidebar_border)
-      // The sidebar runs to the top of the window; this band holds the traffic lights.
       .child(TitleBar::new().h(TOOLBAR_HEIGHT).bg(transparent_black()).border_b_1().border_color(band_line(&theme)))
       .child(
         h_flex()
-          .h(px(28.))
+          .h(px(32.))
           .px_3()
           .items_center()
           .justify_between()
-          .child(div().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("HISTORY"))
-          .when(!empty, |this| {
-            this.child(icon_button(
-              "clear-history",
-              IconName::Delete,
-              "Clear history",
-              cx.listener(|this, _, window, cx| this.confirm_clear_history(window, cx)),
-            ))
-          }),
+          .child(div().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("SESSIONS"))
+          .child(icon_button(
+            "new-session",
+            IconName::Plus,
+            "New session",
+            cx.listener(|this, _, window, cx| {
+              this.new_tab(cx);
+              this.focus_handle.focus(window, cx);
+              cx.notify();
+            }),
+          )),
       )
-      .child(if empty {
+      .child(
         v_flex()
+          .id("session-list")
           .flex_1()
-          .items_center()
-          .justify_center()
-          .pb(px(80.))
-          .gap_2()
-          .text_color(theme.muted_foreground.opacity(0.7))
-          .child(Icon::new(IconName::SquareTerminal).with_size(component::Size::Size(px(28.))))
-          .child(div().text_size(px(12.)).child("No commands yet"))
-          .into_any_element()
-      } else {
-        v_flex().id("history-list").flex_1().min_h_0().px_2().pb_2().gap(px(1.)).overflow_y_scroll().children(items).into_any_element()
-      })
+          .min_h_0()
+          .px_2()
+          .pb_2()
+          .gap(px(1.))
+          .overflow_y_scroll()
+          .children(sessions)
+          .child(
+            h_flex()
+              .h(px(32.))
+              .px_1()
+              .items_center()
+              .justify_between()
+              .child(div().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("COMMAND HISTORY"))
+              .when(has_commands, |this| {
+                this.child(icon_button(
+                  "clear-history",
+                  IconName::Delete,
+                  "Clear session history",
+                  cx.listener(|this, _, window, cx| this.confirm_clear_history(window, cx)),
+                ))
+              }),
+          )
+          .children(commands),
+      )
   }
 }
 

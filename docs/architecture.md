@@ -13,11 +13,11 @@ apps/mterm ──► ui ──► terminal
 
 | Crate | Owns | Depends on |
 | --- | --- | --- |
-| `terminal` | `Session` (PTY + emulator), `Snapshot`, `Palette`, `encode_key`, `paste_bytes` | `alacritty_terminal` |
-| `storage` | data directory, `WindowSize`, `History`, `Preferences` | none |
+| `terminal` | `Session` (PTY + emulator and shell directory lookup), `Snapshot`, `Palette`, `encode_key`, `paste_bytes` | `alacritty_terminal` |
+| `storage` | data directory, `WindowSize`, `SavedSession`, `History`, `Preferences` | `serde_json` |
 | `version` | numeric version comparison | none |
 | `updater` | release lookup, download, verification, bundle swap | version |
-| `ui` | `AppModel` (shared preferences and update state), `Workspace` (top band, history sidebar, tabs and panes), the Settings panel, actions, assets | terminal, storage, updater, gpui-kit |
+| `ui` | `AppModel` (shared preferences and update state), `Workspace` (top band, session sidebar, tabs and panes), the Settings panel, actions, assets | terminal, storage, updater, gpui-kit |
 | `apps/mterm` | window, menus, key bindings, quit handling | ui, storage, gpui-kit |
 
 `terminal` and `storage` know nothing about the interface, so they are tested
@@ -36,17 +36,23 @@ without a window.
 4. Key presses go through `encode_key` and are written to the PTY. The same keys
    feed a small line tracker that adds finished commands to `History`.
 
-## Windows, tabs and panes
+## Windows, sessions, tabs and panes
 
-Each window owns one `Workspace`. A workspace holds tabs; a tab is a binary tree
-of panes (`layout::Node`) plus the focused pane, and every pane owns a `Session`.
-Panes report events over one channel tagged with their id; a shell that exits closes
-its pane, the last pane closes the tab, and the last tab closes the window. Each pane
-fits its PTY to the space layout gives it (a `canvas` measures it during paint).
-New windows are opened by the app (`⌘N` / the context menu's `NewWindow` action).
-Split dividers can be dragged to resize panes. The most recently changed split layout
-and its ratios are stored in `layout.txt` and restored with fresh shell sessions when
-a window opens; terminal output and shell state are not restored.
+Each window owns one `Workspace`. A saved session has its own name, last known
+shell directory, recorded commands and split layout under `sessions/<id>/` in
+the data directory. The sidebar lists saved sessions and can create or reopen
+them. A live session occupies a tab, which is a binary tree of panes plus the
+focused pane. Switching tabs keeps their running processes and screens alive.
+On restart, selecting a session starts fresh shells in its saved directory;
+processes and terminal output cannot be restored. A missing directory falls back
+to the user's home directory. The last selected session opens on launch. The
+original history and layout are copied into the first session during migration.
+
+Panes report events over one channel tagged with their id; a shell that exits
+closes its pane, the last pane closes the tab, and the last tab closes the window.
+Split dividers can be dragged to resize panes. Each session saves its own split
+layout and ratios. The shell's directory is checked asynchronously after Enter
+using the shell process working directory (`lsof` on macOS, `/proc` on Linux).
 
 ## Settings and updates
 
@@ -70,7 +76,10 @@ Development builds never check for or install releases.
 
 ## Command history
 
-History is built from typed keys, not from the shell, so it works with any shell
-without configuration. A line is recorded on Enter unless it was edited in a way
-that cannot be followed (history recall, cursor movement, Tab completion). The
-last 500 commands are kept in `~/Library/Application Support/mTerm/history.txt`.
+The active session's command history is built from typed keys, not from the shell,
+so it works without changing shell configuration. A line is recorded on Enter
+unless it was edited in a way that cannot be followed (history recall, cursor
+movement, Tab completion). Each session keeps up to 500 recorded commands. This
+list does not replace or isolate the shell's own history file or shell history
+navigation. The old `history.txt` is retained when it is copied into the first
+session.
