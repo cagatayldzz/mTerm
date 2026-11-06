@@ -24,10 +24,22 @@ fn wait_for_exit(receiver: &mpsc::Receiver<SessionEvent>) {
   panic!("the shell did not exit");
 }
 
+/// Waits until the screen satisfies `ready`; the output and the exit notice race each other.
+fn wait_for_screen(session: &Session, ready: impl Fn(&mterm_terminal::Snapshot) -> bool) {
+  let deadline = Instant::now() + Duration::from_secs(5);
+  while Instant::now() < deadline {
+    if ready(&session.snapshot(&Palette::light())) {
+      return;
+    }
+    std::thread::sleep(Duration::from_millis(20));
+  }
+}
+
 #[test]
 fn program_output_reaches_the_snapshot() {
   let (session, receiver) = run("printf 'hello\\n\\033[31mred\\033[0m'");
   wait_for_exit(&receiver);
+  wait_for_screen(&session, |snapshot| snapshot.line_text(1).starts_with("red"));
   let snapshot = session.snapshot(&Palette::light());
   assert_eq!(snapshot.line_text(0), "hello");
   assert!(snapshot.line_text(1).starts_with("red"));
@@ -40,6 +52,7 @@ fn input_is_echoed_by_the_program() {
   let (session, receiver) = run("read line; printf \"got:%s\" \"$line\"");
   session.write(b"abc\r".to_vec());
   wait_for_exit(&receiver);
+  wait_for_screen(&session, |snapshot| snapshot.text().contains("got:abc"));
   assert!(session.snapshot(&Palette::light()).text().contains("got:abc"));
 }
 

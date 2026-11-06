@@ -111,7 +111,8 @@ impl Session {
       ..Options::default()
     };
     let pty = tty::new(&pty_options, window_size(columns, lines), 0)?;
-    let event_loop = EventLoop::new(term.clone(), proxy.clone(), pty, false, false)?;
+    // Drain on exit: output the program wrote just before it exited still reaches the screen.
+    let event_loop = EventLoop::new(term.clone(), proxy.clone(), pty, true, false)?;
     let sender = event_loop.channel();
     let _ = proxy.sender.set(sender.clone());
     event_loop.spawn();
