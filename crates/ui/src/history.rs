@@ -3,10 +3,7 @@ use crate::{
   ToggleSidebar,
 };
 use gpui_kit::{
-  component::{
-    button::{Button, ButtonVariants},
-    h_flex, v_flex, ActiveTheme, IconName, Sizable,
-  },
+  component::{h_flex, v_flex, ActiveTheme, Icon, IconName, Sizable},
   *,
 };
 
@@ -54,7 +51,7 @@ impl Workspace {
       .border_color(theme.sidebar_border)
       .child(
         h_flex()
-          .h(px(32.))
+          .h(px(40.))
           .px_3()
           .items_center()
           .justify_between()
@@ -65,14 +62,7 @@ impl Workspace {
               .child(sidebar_toggle(IconName::PanelLeftClose, "Hide history (⌘B)"))
               .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.foreground).child("History")),
           )
-          .child(
-            Button::new("clear-history")
-              .ghost()
-              .xsmall()
-              .icon(IconName::Delete)
-              .tooltip("Clear history")
-              .on_click(cx.listener(|this, _, _, cx| this.clear_history(cx))),
-          ),
+          .child(icon_button("clear-history", IconName::Delete, "Clear history", cx.listener(|this, _, _, cx| this.clear_history(cx)))),
       )
       .child(if empty {
         div().px_3().text_size(px(12.)).text_color(theme.muted_foreground).child("Commands you run will appear here.").into_any_element()
@@ -82,12 +72,31 @@ impl Workspace {
   }
 }
 
+/// A clickable icon, larger than the stock button icons so it reads at a glance.
+pub(crate) fn icon_button(
+  id: impl Into<ElementId>,
+  icon: IconName,
+  tooltip: impl Into<SharedString>,
+  on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> impl IntoElement {
+  div()
+    .id(id)
+    .size(px(30.))
+    .flex()
+    .items_center()
+    .justify_center()
+    .rounded_md()
+    .cursor_pointer()
+    .hover(|style| style.opacity(0.6))
+    .tooltip({
+      let tooltip: SharedString = tooltip.into();
+      move |window, cx| component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
+    })
+    .on_click(on_click)
+    .child(Icon::new(icon).with_size(component::Size::Size(px(20.))))
+}
+
 /// The sidebar toggle. It sits in the sidebar header when open and in the page when closed.
 pub(crate) fn sidebar_toggle(icon: IconName, tooltip: &'static str) -> impl IntoElement {
-  Button::new("toggle-sidebar")
-    .ghost()
-    .small()
-    .icon(icon)
-    .tooltip(tooltip)
-    .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleSidebar), cx))
+  icon_button("toggle-sidebar", icon, tooltip, |_, window, cx| window.dispatch_action(Box::new(ToggleSidebar), cx))
 }

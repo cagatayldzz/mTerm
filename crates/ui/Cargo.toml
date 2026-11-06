@@ -5,6 +5,7 @@ edition.workspace = true
 publish.workspace = true
 license.workspace = true
 description = "mTerm interface views built with GPUI Kit"
+autotests = false
 
 [package.metadata.layers]
 dependencies = ["mterm-terminal", "mterm-storage", "futures", "gpui-kit", "gpui-kit-assets"]

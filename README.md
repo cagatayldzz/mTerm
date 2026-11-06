@@ -3,8 +3,8 @@
 A minimal native macOS terminal written in Rust with a GPU-rendered
 [GPUI](https://gpui.rs) interface, built with GPUI Kit.
 
-mTerm opens a single window: a collapsible sidebar on the left lists the commands
-you have run, and the terminal fills the rest. Click a history entry to type it at
+mTerm opens a window with tabs and split panes: a collapsible sidebar on the left lists the commands
+you have run, and the terminal fills the rest. Right-click a pane for New Window, New Tab, and Split Pane. Click a history entry to type it at
 the prompt. Terminal emulation is provided by `alacritty_terminal`.
 
 ## Requirements
@@ -26,6 +26,10 @@ bun run check     # formatting, clippy, and tests
 
 | Shortcut | Action |
 | --- | --- |
+| `⌘N` / `⌘T` | New window / new tab |
+| `⌘D` / `⇧⌘D` | Split the pane vertically / horizontally |
+| `⌘W` | Close the pane (its tab and window with the last one) |
+| `⇧⌘[` / `⇧⌘]` | Previous / next tab |
 | `⌘B` | Show or hide the history sidebar |
 | `⌘V` | Paste |
 | `⌘K` | Clear the screen |

@@ -125,16 +125,17 @@ impl Session {
     self.term.lock().scroll_display(Scroll::Bottom);
   }
 
-  /// Resizes the terminal and the PTY.
-  pub fn resize(&self, columns: usize, lines: usize) {
+  /// Resizes the terminal and the PTY. Returns whether the size changed.
+  pub fn resize(&self, columns: usize, lines: usize) -> bool {
     let (columns, lines) = (columns.max(2), lines.max(1));
     let mut term = self.term.lock();
     if term.columns() == columns && term.screen_lines() == lines {
-      return;
+      return false;
     }
     term.resize(Size { columns, lines });
     drop(term);
     let _ = self.sender.send(Msg::Resize(window_size(columns, lines)));
+    true
   }
 
   /// Scrolls the history view; positive lines go back in time.
