@@ -3,13 +3,14 @@
 #   scripts/app.sh --dev                     debug build, then launch dist/mTerm.app
 #   scripts/app.sh [debug|release] --build   build dist/mTerm.app (default: debug)
 #   scripts/app.sh --check                   formatting, clippy and tests
+#   scripts/app.sh --icon                    regenerate AppIcon.icns from icon.svg
 set -euo pipefail
 
 # Project paths and helpers.
 project_dir="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$project_dir"
 
-usage="Usage: scripts/app.sh --dev | [debug|release] --build | --check"
+usage="Usage: scripts/app.sh --dev | [debug|release] --build | --check | --icon"
 resources="$project_dir/apps/mterm/macos"
 app_dir="$project_dir/dist/mTerm.app"
 
@@ -28,6 +29,7 @@ for argument in "$@"; do
     --dev) action="dev"; configuration="debug" ;;
     --build) action="build" ;;
     --check) action="check" ;;
+    --icon) action="icon" ;;
     *) fail "$usage" ;;
   esac
 done
@@ -40,6 +42,22 @@ run_check() {
   cargo fmt --all -- --check
   cargo clippy --locked --workspace --all-targets -- -D warnings
   cargo test --locked --workspace
+}
+
+# Render icon.svg at every size macOS expects and pack it into AppIcon.icns.
+make_icon() {
+  local work iconset
+  work="$(mktemp -d)"
+  iconset="$work/AppIcon.iconset"
+  mkdir "$iconset"
+  qlmanage -t -s 1024 -o "$work" "$resources/icon.svg" >/dev/null 2>&1
+  for size in 16 32 128 256 512; do
+    sips -z "$size" "$size" "$work/icon.svg.png" --out "$iconset/icon_${size}x${size}.png" >/dev/null
+    sips -z "$((size * 2))" "$((size * 2))" "$work/icon.svg.png" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
+  done
+  iconutil -c icns "$iconset" -o "$resources/AppIcon.icns"
+  rm -rf "$work"
+  echo "Ready: $resources/AppIcon.icns"
 }
 
 # Build the binary, wrap it in dist/mTerm.app and sign it.
@@ -57,6 +75,7 @@ bundle() {
   mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
   cp "$project_dir/target/$configuration/mTerm" "$app_dir/Contents/MacOS/mTerm"
   cp "$resources/Info.plist" "$app_dir/Contents/Info.plist"
+  cp "$resources/AppIcon.icns" "$app_dir/Contents/Resources/AppIcon.icns"
 }
 
 # Local development signature. Distribution requires Developer ID + notarization.
@@ -75,6 +94,7 @@ build_app() {
 # Run the requested action.
 case "$action" in
   check) run_check ;;
+  icon) make_icon ;;
   build) build_app ;;
   dev)
     build_app
