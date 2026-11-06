@@ -1,0 +1,23 @@
+[package]
+name = "mterm-ui"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "mTerm interface views built with GPUI Kit"
+
+[package.metadata.layers]
+dependencies = ["mterm-terminal", "mterm-storage", "futures", "gpui-kit", "gpui-kit-assets"]
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+mterm-terminal.workspace = true
+mterm-storage.workspace = true
+gpui-kit.workspace = true
+gpui-kit-assets.workspace = true
+futures.workspace = true

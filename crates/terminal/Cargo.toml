@@ -1,0 +1,19 @@
+[package]
+name = "mterm-terminal"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "Shell session: PTY, terminal emulation and key encoding"
+
+[package.metadata.layers]
+dependencies = ["alacritty_terminal"]
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+alacritty_terminal.workspace = true

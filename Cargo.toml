@@ -1,0 +1,47 @@
+[workspace]
+resolver = "2"
+members = ["apps/*", "crates/*"]
+default-members = ["apps/mterm"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "UNLICENSED"
+
+[workspace.dependencies]
+mterm-terminal = { path = "crates/terminal" }
+mterm-storage = { path = "crates/storage" }
+mterm-ui = { path = "crates/ui" }
+alacritty_terminal = "0.26.0"
+gpui-kit = "0.8.0"
+gpui-kit-assets = "0.8.0"
+futures = "0.3"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "deny"
+unimplemented = "deny"
+
+[profile.release]
+strip = true
+
+# Dependencies (GPUI above all) build without debug info: smaller target directory, faster linking.
+[profile.dev.package."*"]
+debug = false
+
+# Keep layout and frame rendering fast in the development app.
+[profile.dev.package.gpui-pre]
+opt-level = 2
+
+[profile.dev.package.gpui-component]
+opt-level = 2
+
+[profile.dev.package.taffy]
+opt-level = 2
+
+[profile.dev.package.alacritty_terminal]
+opt-level = 2

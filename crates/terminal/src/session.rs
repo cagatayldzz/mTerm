@@ -1,0 +1,209 @@
+use crate::{
+  palette::Palette,
+  snapshot::{spans, Cursor, Glyph, Snapshot},
+};
+use alacritty_terminal::{
+  event::{Event, EventListener, WindowSize},
+  event_loop::{EventLoop, EventLoopSender, Msg},
+  grid::{Dimensions, Scroll},
+  sync::FairMutex,
+  term::{cell::Flags, Config, Term, TermMode},
+  tty::{self, Options, Shell},
+};
+use std::{
+  path::PathBuf,
+  sync::{Arc, OnceLock},
+};
+
+/// What a session tells the interface.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SessionEvent {
+  /// The screen changed.
+  Wakeup,
+  /// The program set a window title.
+  Title(String),
+  /// The shell exited.
+  Exit,
+}
+
+/// How to start a session.
+#[derive(Clone, Debug, Default)]
+pub struct SessionOptions {
+  /// A program and its arguments; `None` starts the user's login shell.
+  pub program: Option<(String, Vec<String>)>,
+  pub working_directory: Option<PathBuf>,
+}
+
+/// Terminal modes that change how input is encoded.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Modes {
+  pub app_cursor: bool,
+  pub bracketed_paste: bool,
+}
+
+type Notify = Arc<dyn Fn(SessionEvent) + Send + Sync>;
+
+#[derive(Clone)]
+struct Proxy {
+  notify: Notify,
+  sender: Arc<OnceLock<EventLoopSender>>,
+}
+
+impl EventListener for Proxy {
+  fn send_event(&self, event: Event) {
+    match event {
+      Event::Wakeup => (self.notify)(SessionEvent::Wakeup),
+      Event::Title(title) => (self.notify)(SessionEvent::Title(title)),
+      Event::ResetTitle => (self.notify)(SessionEvent::Title(String::new())),
+      Event::Exit | Event::ChildExit(_) => (self.notify)(SessionEvent::Exit),
+      // Replies the program asked for, such as cursor position reports.
+      Event::PtyWrite(text) => {
+        if let Some(sender) = self.sender.get() {
+          let _ = sender.send(Msg::Input(text.into_bytes().into()));
+        }
+      }
+      _ => {}
+    }
+  }
+}
+
+struct Size {
+  columns: usize,
+  lines: usize,
+}
+
+impl Dimensions for Size {
+  fn total_lines(&self) -> usize {
+    self.lines
+  }
+
+  fn screen_lines(&self) -> usize {
+    self.lines
+  }
+
+  fn columns(&self) -> usize {
+    self.columns
+  }
+}
+
+/// A running shell attached to a pseudo-terminal.
+pub struct Session {
+  term: Arc<FairMutex<Term<Proxy>>>,
+  sender: EventLoopSender,
+}
+
+impl Session {
+  /// Starts the shell. `notify` is called from a background thread whenever
+  /// something happens; it must be cheap and must not block.
+  pub fn spawn(
+    options: SessionOptions,
+    columns: usize,
+    lines: usize,
+    notify: impl Fn(SessionEvent) + Send + Sync + 'static,
+  ) -> std::io::Result<Self> {
+    tty::setup_env();
+    let (columns, lines) = (columns.max(2), lines.max(1));
+    let proxy = Proxy { notify: Arc::new(notify), sender: Arc::new(OnceLock::new()) };
+    let term = Arc::new(FairMutex::new(Term::new(Config::default(), &Size { columns, lines }, proxy.clone())));
+    let pty_options = Options {
+      shell: options.program.map(|(program, args)| Shell::new(program, args)),
+      working_directory: options.working_directory,
+      ..Options::default()
+    };
+    let pty = tty::new(&pty_options, window_size(columns, lines), 0)?;
+    let event_loop = EventLoop::new(term.clone(), proxy.clone(), pty, false, false)?;
+    let sender = event_loop.channel();
+    let _ = proxy.sender.set(sender.clone());
+    event_loop.spawn();
+    Ok(Self { term, sender })
+  }
+
+  /// Sends bytes to the program, as if typed.
+  pub fn write(&self, bytes: impl Into<std::borrow::Cow<'static, [u8]>>) {
+    let _ = self.sender.send(Msg::Input(bytes.into()));
+    // Typing returns the view to the live output.
+    self.term.lock().scroll_display(Scroll::Bottom);
+  }
+
+  /// Resizes the terminal and the PTY.
+  pub fn resize(&self, columns: usize, lines: usize) {
+    let (columns, lines) = (columns.max(2), lines.max(1));
+    let mut term = self.term.lock();
+    if term.columns() == columns && term.screen_lines() == lines {
+      return;
+    }
+    term.resize(Size { columns, lines });
+    drop(term);
+    let _ = self.sender.send(Msg::Resize(window_size(columns, lines)));
+  }
+
+  /// Scrolls the history view; positive lines go back in time.
+  pub fn scroll(&self, lines: i32) {
+    self.term.lock().scroll_display(Scroll::Delta(lines));
+  }
+
+  pub fn modes(&self) -> Modes {
+    let term = self.term.lock();
+    Modes { app_cursor: term.mode().contains(TermMode::APP_CURSOR), bracketed_paste: term.mode().contains(TermMode::BRACKETED_PASTE) }
+  }
+
+  /// The current screen, colored with `palette`.
+  pub fn snapshot(&self, palette: &Palette) -> Snapshot {
+    let term = self.term.lock();
+    let (columns, lines) = (term.columns(), term.screen_lines());
+    let content = term.renderable_content();
+    let offset = content.display_offset;
+    let mut rows = vec![vec![Glyph::blank(); columns]; lines];
+    for row in &mut rows {
+      for glyph in row.iter_mut() {
+        glyph.foreground = palette.foreground;
+      }
+    }
+    for indexed in content.display_iter {
+      let line = indexed.point.line.0 + offset as i32;
+      let column = indexed.point.column.0;
+      if line < 0 || line as usize >= lines || column >= columns {
+        continue;
+      }
+      let cell = indexed.cell;
+      if cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
+        // The wide character before it already fills both cells.
+        rows[line as usize][column] = Glyph { character: '\u{200b}', ..Glyph::blank() };
+        continue;
+      }
+      let background = palette.resolve(cell.bg);
+      let mut glyph = Glyph {
+        character: if cell.flags.contains(Flags::HIDDEN) { ' ' } else { cell.c },
+        foreground: palette.resolve(cell.fg),
+        background: (background != palette.background).then_some(background),
+        bold: cell.flags.contains(Flags::BOLD),
+        italic: cell.flags.contains(Flags::ITALIC),
+        underline: cell.flags.intersects(Flags::ALL_UNDERLINES),
+        strikeout: cell.flags.contains(Flags::STRIKEOUT),
+      };
+      if cell.flags.contains(Flags::INVERSE) {
+        glyph.invert(palette);
+      }
+      rows[line as usize][column] = glyph;
+    }
+    let cursor = alacritty_terminal::term::point_to_viewport(offset, content.cursor.point)
+      .filter(|_| content.cursor.shape != alacritty_terminal::vte::ansi::CursorShape::Hidden)
+      .filter(|point| point.line < lines && point.column.0 < columns)
+      .map(|point| Cursor { line: point.line, column: point.column.0 });
+    if let Some(cursor) = cursor {
+      rows[cursor.line][cursor.column].invert(palette);
+    }
+    let lines = rows.iter().map(|row| spans(&row.iter().filter(|glyph| glyph.character != '\u{200b}').cloned().collect::<Vec<_>>())).collect();
+    Snapshot { lines, cursor, columns, scrolled: offset }
+  }
+}
+
+impl Drop for Session {
+  fn drop(&mut self) {
+    let _ = self.sender.send(Msg::Shutdown);
+  }
+}
+
+fn window_size(columns: usize, lines: usize) -> WindowSize {
+  WindowSize { num_lines: lines as u16, num_cols: columns as u16, cell_width: 1, cell_height: 1 }
+}
