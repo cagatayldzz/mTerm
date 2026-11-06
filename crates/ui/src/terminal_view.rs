@@ -19,7 +19,7 @@ const FONT_FAMILY: &str = "Menlo";
 const FONT_SIZE: Pixels = px(13.);
 const LINE_HEIGHT: Pixels = px(17.);
 const PADDING: Pixels = px(12.);
-const DIVIDER_WIDTH: Pixels = px(2.);
+const DIVIDER_WIDTH: Pixels = px(1.);
 const PANE_HEADER_HEIGHT: Pixels = px(28.);
 /// How dark the veil over an unfocused split pane is.
 const PANE_VEIL: f32 = 0.18;
@@ -75,7 +75,7 @@ impl Workspace {
     let mut panes = Vec::new();
     let mut dividers = Vec::new();
     place(&root, area, &mut panes, &mut dividers, &mut Vec::new(), sidebar);
-    let border = cx.theme().foreground.opacity(0.35);
+    let border = cx.theme().sidebar_border;
     let panes: Vec<_> = panes.into_iter().map(|(id, bounds)| self.render_pane(id, bounds, id == focused, split, &metrics, cx)).collect();
     div()
       .flex_1()
