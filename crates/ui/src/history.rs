@@ -60,8 +60,10 @@ impl Workspace {
           .on_click(cx.listener(move |this, _, window, cx| this.select_session(&id, window, cx)))
           .context_menu(move |menu, _, _| {
             let pin_id = menu_id.clone();
+            let rename_id = menu_id.clone();
             let delete_id = menu_id.clone();
             let pin_workspace = workspace.clone();
+            let rename_workspace = workspace.clone();
             let delete_workspace = workspace.clone();
             menu
               .item(
@@ -71,6 +73,10 @@ impl Workspace {
                   },
                 ),
               )
+              .item(PopupMenuItem::new("Rename session").on_click(move |_, window, cx| {
+                let id = rename_id.clone();
+                let _ = rename_workspace.update(cx, |this, cx| this.rename_session(id, window, cx));
+              }))
               .separator()
               .item(PopupMenuItem::new("Delete session").icon(Icon::new(gpui_kit_assets::IconName::Trash)).on_click(move |_, window, cx| {
                 let id = delete_id.clone();

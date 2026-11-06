@@ -11,12 +11,22 @@ use crate::{
 use futures::StreamExt as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-  component::{button::Button, h_flex, v_flex, ActiveTheme, Sizable, WindowExt as _},
+  component::{
+    button::Button,
+    h_flex,
+    input::{Input, InputState},
+    v_flex, ActiveTheme, Sizable, WindowExt as _,
+  },
   *,
 };
 use mterm_storage::{History, SavedSession, ThemeChoice};
 use mterm_terminal::{encode_key, paste_bytes, Modifiers, Palette, Session, SessionEvent, SessionOptions};
-use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc};
+use std::{
+  cell::{Cell, RefCell},
+  collections::HashMap,
+  path::PathBuf,
+  rc::Rc,
+};
 
 /// Height of the top band: the traffic lights, the toggle and the title or tabs.
 pub const TOOLBAR_HEIGHT: Pixels = px(44.);
@@ -402,6 +412,53 @@ impl Workspace {
     self.sync_saved_sessions(cx);
     self.model.update(cx, |_, cx| cx.notify());
     cx.notify();
+  }
+
+  pub(crate) fn rename_session(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+    let Some(saved) = self.saved_sessions.iter().find(|saved| saved.id == id) else { return };
+    let name = saved.name.clone();
+    let input = cx.new(|cx| InputState::new(window, cx).default_value(name));
+    let workspace = cx.weak_entity();
+    let initial_focus = Cell::new(true);
+    window.open_alert_dialog(cx, move |dialog, window, cx| {
+      if initial_focus.replace(false) {
+        input.focus_handle(cx).focus(window, cx);
+      }
+      let input_for_save = input.clone();
+      let workspace = workspace.clone();
+      let id = id.clone();
+      dialog.confirm().title("Rename session").child(Input::new(&input)).ok_text("Save").on_ok(move |_, window, cx| {
+        let name = input_for_save.read(cx).value().trim().to_owned();
+        if name.is_empty() {
+          window.push_notification(component::notification::Notification::error("Session name cannot be empty."), cx);
+          return false;
+        }
+        workspace
+          .update(cx, |this, cx| {
+            let sessions = match SavedSession::try_list(&SavedSession::directory_path()) {
+              Ok(sessions) => sessions,
+              Err(error) => {
+                window.push_notification(component::notification::Notification::error(format!("Could not read sessions: {error}")), cx);
+                return false;
+              }
+            };
+            let Some(mut saved) = sessions.into_iter().find(|saved| saved.id == id) else {
+              window.push_notification(component::notification::Notification::error("The session no longer exists."), cx);
+              return false;
+            };
+            saved.name = name;
+            if let Err(error) = saved.save(&SavedSession::directory_path()) {
+              window.push_notification(component::notification::Notification::error(format!("Could not rename the session: {error}")), cx);
+              return false;
+            }
+            this.sync_saved_sessions(cx);
+            this.model.update(cx, |_, cx| cx.notify());
+            cx.notify();
+            true
+          })
+          .unwrap_or(true)
+      })
+    });
   }
 
   pub(crate) fn confirm_delete_session(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
