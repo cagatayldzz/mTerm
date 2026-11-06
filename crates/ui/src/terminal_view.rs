@@ -1,6 +1,6 @@
 use crate::{
   layout::{Node, PaneId, Split},
-  workspace::{Workspace, SIDEBAR_WIDTH, TOOLBAR_HEIGHT},
+  workspace::{Workspace, TOOLBAR_HEIGHT},
   ClearScreen, ClosePane, NewTab, NewWindow, Paste, SplitHorizontally, SplitVertically,
 };
 use gpui_kit::prelude::FluentBuilder as _;
@@ -9,7 +9,7 @@ use gpui_kit::{
     button::{Button, ButtonVariants},
     h_flex,
     menu::{ContextMenuExt as _, DropdownMenu as _},
-    ActiveTheme, Icon, IconName, Sizable,
+    ActiveTheme, Icon, IconName, Sizable, WindowExt as _,
   },
   *,
 };
@@ -90,7 +90,7 @@ impl Workspace {
     let metrics = Metrics { font, cell_width, fixed_cells, palette };
     let split = root.leaves().len() > 1;
     // Panes are placed at explicit rectangles: flex percentages do not resolve reliably for nested splits.
-    let sidebar = if self.sidebar_open { SIDEBAR_WIDTH } else { px(0.) };
+    let sidebar = px(0.);
     let viewport = window.viewport_size();
     let area = Bounds::new(point(px(0.), px(0.)), size(viewport.width - sidebar, viewport.height - TOOLBAR_HEIGHT));
     let mut panes = Vec::new();
@@ -167,7 +167,14 @@ impl Workspace {
       .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| this.focus_pane(id, window, cx)))
       .on_mouse_down(MouseButton::Right, cx.listener(move |this, _, window, cx| this.focus_pane(id, window, cx)))
       .on_drop(cx.listener(move |this, paths: &ExternalPaths, window, cx| {
-        let text = mterm_terminal::dropped_paths(paths.paths().iter().map(|path| path.as_path()));
+        let paths = match mterm_storage::prepare_dropped_paths(paths.paths()) {
+          Ok(paths) => paths,
+          Err(error) => {
+            window.push_notification(component::notification::Notification::error(format!("Could not prepare dropped file: {error}")), cx);
+            return;
+          }
+        };
+        let text = mterm_terminal::dropped_paths(paths.iter().map(|path| path.as_path()));
         if !text.is_empty() {
           this.focus_pane(id, window, cx);
           this.insert_text(&text, window, cx);

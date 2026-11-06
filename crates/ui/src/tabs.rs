@@ -1,29 +1,30 @@
 use crate::{
-  history::{icon_button, sidebar_toggle},
+  history::icon_button,
   workspace::{Workspace, TOOLBAR_HEIGHT},
   NewTab, OpenSettings,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-  component::{h_flex, ActiveTheme, Icon, IconName, Sizable, ThemeColor, TitleBar},
+  component::{
+    button::{Button, ButtonVariants},
+    h_flex,
+    menu::{DropdownMenu as _, PopupMenuItem},
+    ActiveTheme, Icon, IconName, Sizable, ThemeColor, TitleBar,
+  },
   *,
 };
 
-/// Where the band's content starts when the sidebar is open (the sidebar already covers the traffic lights).
-const BAND_INSET: Pixels = px(12.);
-/// Where it starts when the sidebar is closed: past the traffic lights.
+/// Keep the band content clear of the traffic lights.
 const BAND_INSET_CLEARING_LIGHTS: Pixels = px(88.);
 
 impl Workspace {
-  /// The single top band over the page, level with the traffic lights. It holds the sidebar toggle,
-  /// the title (or the tabs, once there is more than one) and shares the terminal's background, with a hairline
-  /// below it.
+  /// The top band holds the title, tabs and window controls.
   pub(crate) fn render_band(&self, cx: &mut Context<Self>) -> impl IntoElement {
     let theme = cx.theme().clone();
     let background = rgb(Self::palette(cx).background.hex());
-    let open = self.sidebar_open;
-    let icon = if open { IconName::PanelLeftClose } else { IconName::PanelLeftOpen };
-    let tooltip = if open { "Hide sessions (⌘B)" } else { "Show sessions (⌘B)" };
+    let sessions = self.saved_sessions.clone();
+    let current = self.tabs.get(self.active).map(|tab| tab.saved.clone());
+    let workspace = cx.weak_entity();
 
     let middle = if self.active_tab_indices().len() > 1 {
       h_flex()
@@ -49,32 +50,66 @@ impl Workspace {
         .into_any_element()
     };
 
-    TitleBar::new()
-      .h(TOOLBAR_HEIGHT)
-      .pl(if open { BAND_INSET } else { BAND_INSET_CLEARING_LIGHTS })
-      .pr_3()
-      .bg(background)
-      .border_b_1()
-      .border_color(band_line(&theme))
-      .child(
-        h_flex()
-          .id("title-bar-content")
-          .w_full()
-          .h_full()
-          .on_mouse_down(MouseButton::Left, |event: &MouseDownEvent, window, cx| {
-            if event.click_count == 2 {
-              window.zoom_window();
-              cx.stop_propagation();
+    TitleBar::new().h(TOOLBAR_HEIGHT).pl(BAND_INSET_CLEARING_LIGHTS).pr_3().bg(background).border_b_1().border_color(band_line(&theme)).child(
+      h_flex()
+        .id("title-bar-content")
+        .w_full()
+        .h_full()
+        .on_mouse_down(MouseButton::Left, |event: &MouseDownEvent, window, cx| {
+          if event.click_count == 2 {
+            window.zoom_window();
+            cx.stop_propagation();
+          }
+        })
+        .items_center()
+        .gap_2()
+        .child(middle)
+        .child(Button::new("sessions-menu").icon(Icon::new(gpui_kit_assets::IconName::Layers)).ghost().xsmall().dropdown_menu(
+          move |mut menu, _, _| {
+            let new_workspace = workspace.clone();
+            menu = menu
+              .item(PopupMenuItem::new("New session").on_click(move |_, window, cx| {
+                let _ = new_workspace.update(cx, |this, cx| {
+                  this.new_session(cx);
+                  this.focus_handle.focus(window, cx);
+                  cx.notify();
+                });
+              }))
+              .separator();
+            for saved in &sessions {
+              let id = saved.id.clone();
+              let target = workspace.clone();
+              let label = if current.as_ref().is_some_and(|active| active.id == id) { format!("✓ {}", saved.name) } else { saved.name.clone() };
+              menu = menu.item(PopupMenuItem::new(label).on_click(move |_, window, cx| {
+                let _ = target.update(cx, |this, cx| this.select_session(&id, window, cx));
+              }));
             }
-          })
-          .items_center()
-          .gap_2()
-          .child(sidebar_toggle(icon, tooltip))
-          .child(middle)
-          .child(icon_button("open-settings", IconName::Settings, "Settings (⌘,)", |_, window, cx| {
-            window.dispatch_action(Box::new(OpenSettings), cx)
-          })),
-      )
+            if let Some(saved) = &current {
+              let rename_id = saved.id.clone();
+              let delete_id = saved.id.clone();
+              let pin_id = saved.id.clone();
+              let rename = workspace.clone();
+              let delete = workspace.clone();
+              let pin = workspace.clone();
+              menu = menu
+                .separator()
+                .item(PopupMenuItem::new("Rename session").on_click(move |_, window, cx| {
+                  let _ = rename.update(cx, |this, cx| this.rename_session(rename_id.clone(), window, cx));
+                }))
+                .item(PopupMenuItem::new(if saved.pinned { "Unpin session" } else { "Pin session" }).on_click(move |_, window, cx| {
+                  let _ = pin.update(cx, |this, cx| this.toggle_session_pin(&pin_id, window, cx));
+                }))
+                .item(PopupMenuItem::new("Delete session").on_click(move |_, window, cx| {
+                  let _ = delete.update(cx, |this, cx| this.confirm_delete_session(delete_id.clone(), window, cx));
+                }));
+            }
+            menu
+          },
+        ))
+        .child(icon_button("open-settings", IconName::Settings, "Settings (⌘,)", |_, window, cx| {
+          window.dispatch_action(Box::new(OpenSettings), cx)
+        })),
+    )
   }
 
   fn render_tabs(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {

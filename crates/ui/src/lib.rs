@@ -25,7 +25,6 @@ actions!(
     ShowAll,
     Minimize,
     Zoom,
-    ToggleSidebar,
     Paste,
     ClearScreen,
     ClearHistory,

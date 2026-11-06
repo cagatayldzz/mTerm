@@ -2,7 +2,6 @@ use crate::{
   layout::{Node, PaneId, Split},
   settings::{render_settings, SettingsPage},
   CheckForUpdates, ClearHistory, ClearScreen, ClosePane, NewTab, NextTab, OpenSettings, Paste, PreviousTab, SplitHorizontally, SplitVertically,
-  ToggleSidebar,
 };
 use crate::{
   model::{AppGlobal, AppModel, AppUpdate},
@@ -28,10 +27,8 @@ use std::{
   rc::Rc,
 };
 
-/// Height of the top band: the traffic lights, the toggle and the title or tabs.
+/// Height of the top band: the traffic lights and the title or tabs.
 pub const TOOLBAR_HEIGHT: Pixels = px(44.);
-
-pub(crate) const SIDEBAR_WIDTH: Pixels = px(240.);
 
 /// How dark the veil over an inactive window is (0 is clear, 1 is black).
 pub(crate) const INACTIVE_VEIL: f32 = 0.35;
@@ -67,7 +64,6 @@ pub struct Workspace {
   events: futures::channel::mpsc::UnboundedSender<(PaneId, SessionEvent)>,
   pub(crate) error: Option<String>,
   pub(crate) saved_sessions: Vec<SavedSession>,
-  pub(crate) sidebar_open: bool,
   /// The Settings page shown in place of the terminal, when open.
   pub(crate) settings: Option<SettingsPage>,
   settings_epoch: u64,
@@ -138,7 +134,6 @@ impl Workspace {
       events,
       error: None,
       saved_sessions: SavedSession::list(&SavedSession::directory_path()),
-      sidebar_open: model.read(cx).preferences.sidebar_open,
       settings: None,
       settings_epoch: 0,
       model,
@@ -772,17 +767,6 @@ impl Render for Workspace {
       .key_context(CONTEXT)
       .track_focus(&self.focus_handle)
       .on_key_down(cx.listener(Self::on_key_down))
-      .on_action(cx.listener(|this, _: &ToggleSidebar, window, cx| {
-        if this.settings.is_some() {
-          return;
-        }
-        this.sidebar_open = !this.sidebar_open;
-        // The next launch, and the next window, start the way this one was left.
-        let open = this.sidebar_open;
-        this.model.update(cx, |model, cx| model.set_sidebar_open(open, cx));
-        this.focus_handle.focus(window, cx);
-        cx.notify();
-      }))
       .on_action(cx.listener(|this, _: &Paste, window, cx| this.paste(window, cx)))
       .on_action(cx.listener(|this, _: &OpenSettings, window, cx| this.toggle_settings(window, cx)))
       .on_action(cx.listener(|this, _: &CheckForUpdates, window, cx| {
@@ -815,7 +799,6 @@ impl Render for Workspace {
       .size_full()
       .bg(theme.background)
       .text_color(theme.foreground)
-      .when(self.sidebar_open, |this| this.child(self.render_history(cx)))
       .child(page)
       .when_some(self.settings, |this, settings_page| {
         this.child(

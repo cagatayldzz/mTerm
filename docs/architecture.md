@@ -17,7 +17,7 @@ apps/mterm ──► ui ──► terminal
 | `storage` | data directory, `WindowSize`, `SavedSession`, `History`, `Preferences` | `serde_json` |
 | `version` | numeric version comparison | none |
 | `updater` | release lookup, download, verification, bundle swap | version |
-| `ui` | `AppModel` (shared preferences and update state), `Workspace` (top band, session sidebar, tabs and panes), the Settings panel, actions, assets | terminal, storage, updater, gpui-kit |
+| `ui` | `AppModel` (shared preferences and update state), `Workspace` (top band, session menu, tabs and panes), the Settings panel, actions, assets | terminal, storage, updater, gpui-kit |
 | `apps/mterm` | window, menus, key bindings, quit handling | ui, storage, gpui-kit |
 
 `terminal` and `storage` know nothing about the interface, so they are tested
@@ -40,8 +40,8 @@ without a window.
 
 Each window owns one `Workspace`. A saved session has its own name, last known
 shell directory, recorded commands and split layout under `sessions/<id>/` in
-the data directory. The sidebar lists saved sessions and can create or reopen
-them. Its context menu pins sessions above unpinned ones or deletes the saved
+the data directory. The top bar's session menu can create, reopen, rename and pin
+sessions or delete the saved
 session after confirmation; deletion closes its live panes, but leaves files in
 its working directory untouched. A live session can have multiple tabs, each a
 binary tree of panes plus the focused pane. Only the selected session's tabs are
@@ -62,7 +62,7 @@ using the shell process working directory (`lsof` on macOS, `/proc` on Linux).
 ## Settings and updates
 
 `AppModel` is one entity shared by every window. It owns the saved `Preferences`
-(sidebar state, theme, automatic update checks) and mTerm's own update state. Windows
+(theme, automatic update checks) and mTerm's own update state. Windows
 observe it, so a theme change or a new release reaches all of them. Settings (`⌘,`, or
 the gear in the top bar) open a panel over the terminal to edit them; `Esc` closes it.
 
@@ -85,6 +85,6 @@ The active session's command history is built from typed keys, not from the shel
 so it works without changing shell configuration. A line is recorded on Enter
 unless it was edited in a way that cannot be followed (history recall, cursor
 movement, Tab completion). Each session keeps up to 500 recorded commands. This
-list does not replace or isolate the shell's own history file or shell history
+history is stored without being displayed in the interface. It does not replace or isolate the shell's own history file or shell history
 navigation. The old `history.txt` is retained when it is copied into the first
 session.
