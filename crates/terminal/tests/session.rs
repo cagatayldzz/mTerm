@@ -6,7 +6,7 @@ use std::{
 
 fn run(script: &str) -> (Session, mpsc::Receiver<SessionEvent>) {
   let (sender, receiver) = mpsc::channel();
-  let options = SessionOptions { program: Some(("/bin/sh".into(), vec!["-c".into(), script.into()])), working_directory: None };
+  let options = SessionOptions { program: Some(("/bin/sh".into(), vec!["-c".into(), script.into()])), working_directory: None, palette: None };
   let session = Session::spawn(options, 40, 5, move |event| {
     let _ = sender.send(event);
   })
@@ -63,4 +63,28 @@ fn resize_changes_the_snapshot_size() {
   let snapshot = session.snapshot(&Palette::dark());
   assert_eq!((snapshot.columns, snapshot.lines.len()), (60, 8));
   wait_for_exit(&receiver);
+}
+
+#[test]
+fn background_color_queries_use_the_session_palette() {
+  for palette in [Palette::light(), Palette::dark()] {
+    let expected = format!(
+      "{:02x}{:02x}/{:02x}{:02x}/{:02x}{:02x}",
+      palette.background.r, palette.background.r, palette.background.g, palette.background.g, palette.background.b, palette.background.b
+    );
+    let script = format!(
+      "import os,select,termios,tty; tty.setraw(0); os.write(1, b'\\x1b]11;?\\x07'); r,_,_=select.select([0],[],[],3); data=os.read(0,128) if r else b''; os.write(1, b'MATCH' if b'{expected}' in data else b'MISMATCH')"
+    );
+    let (sender, receiver) = mpsc::channel();
+    let options =
+      SessionOptions { program: Some(("python3".into(), vec!["-c".into(), script])), working_directory: None, palette: Some(palette.clone()) };
+    let session = Session::spawn(options, 40, 5, move |event| {
+      let _ = sender.send(event);
+    })
+    .unwrap();
+    wait_for_exit(&receiver);
+    wait_for_screen(&session, |snapshot| snapshot.text().contains("MATCH"));
+    assert!(session.snapshot(&palette).text().contains("MATCH"));
+    assert!(!session.snapshot(&palette).text().contains("MISMATCH"));
+  }
 }

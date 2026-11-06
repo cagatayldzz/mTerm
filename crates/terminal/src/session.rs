@@ -9,10 +9,11 @@ use alacritty_terminal::{
   sync::FairMutex,
   term::{cell::Flags, Config, Term, TermMode},
   tty::{self, Options, Shell},
+  vte::ansi::NamedColor,
 };
 use std::{
   path::PathBuf,
-  sync::{Arc, OnceLock},
+  sync::{Arc, Mutex, OnceLock},
 };
 
 /// What a session tells the interface.
@@ -32,6 +33,8 @@ pub struct SessionOptions {
   /// A program and its arguments; `None` starts the user's login shell.
   pub program: Option<(String, Vec<String>)>,
   pub working_directory: Option<PathBuf>,
+  /// The initial colors used to answer terminal color queries.
+  pub palette: Option<Palette>,
 }
 
 /// Terminal modes that change how input is encoded.
@@ -47,6 +50,7 @@ type Notify = Arc<dyn Fn(SessionEvent) + Send + Sync>;
 struct Proxy {
   notify: Notify,
   sender: Arc<OnceLock<EventLoopSender>>,
+  palette: Arc<Mutex<Palette>>,
 }
 
 impl EventListener for Proxy {
@@ -60,6 +64,17 @@ impl EventListener for Proxy {
       Event::PtyWrite(text) => {
         if let Some(sender) = self.sender.get() {
           let _ = sender.send(Msg::Input(text.into_bytes().into()));
+        }
+      }
+      Event::ColorRequest(index, format) => {
+        let palette = self.palette.lock().unwrap_or_else(|error| error.into_inner());
+        let color = match index {
+          0..=255 => palette.indexed(index as u8),
+          index if index == NamedColor::Background as usize => palette.background,
+          _ => palette.foreground,
+        };
+        if let Some(sender) = self.sender.get() {
+          let _ = sender.send(Msg::Input(format(alacritty_terminal::vte::ansi::Rgb { r: color.r, g: color.g, b: color.b }).into_bytes().into()));
         }
       }
       _ => {}
@@ -90,6 +105,7 @@ impl Dimensions for Size {
 pub struct Session {
   term: Arc<FairMutex<Term<Proxy>>>,
   sender: EventLoopSender,
+  palette: Arc<Mutex<Palette>>,
 }
 
 impl Session {
@@ -103,7 +119,8 @@ impl Session {
   ) -> std::io::Result<Self> {
     tty::setup_env();
     let (columns, lines) = (columns.max(2), lines.max(1));
-    let proxy = Proxy { notify: Arc::new(notify), sender: Arc::new(OnceLock::new()) };
+    let palette = Arc::new(Mutex::new(options.palette.unwrap_or_else(Palette::dark)));
+    let proxy = Proxy { notify: Arc::new(notify), sender: Arc::new(OnceLock::new()), palette: palette.clone() };
     let term = Arc::new(FairMutex::new(Term::new(Config::default(), &Size { columns, lines }, proxy.clone())));
     let pty_options = Options {
       shell: options.program.map(|(program, args)| Shell::new(program, args)),
@@ -116,7 +133,7 @@ impl Session {
     let sender = event_loop.channel();
     let _ = proxy.sender.set(sender.clone());
     event_loop.spawn();
-    Ok(Self { term, sender })
+    Ok(Self { term, sender, palette })
   }
 
   /// Sends bytes to the program, as if typed.
@@ -147,6 +164,11 @@ impl Session {
   pub fn modes(&self) -> Modes {
     let term = self.term.lock();
     Modes { app_cursor: term.mode().contains(TermMode::APP_CURSOR), bracketed_paste: term.mode().contains(TermMode::BRACKETED_PASTE) }
+  }
+
+  /// Updates the colors reported to applications querying the terminal.
+  pub fn set_palette(&self, palette: Palette) {
+    *self.palette.lock().unwrap_or_else(|error| error.into_inner()) = palette;
   }
 
   /// The current screen, colored with `palette`.

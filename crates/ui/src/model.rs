@@ -2,7 +2,7 @@
 
 use futures::{channel::mpsc, StreamExt};
 use gpui_kit::*;
-use mterm_storage::{Preferences, ThemeChoice};
+use mterm_storage::{FontChoice, Preferences, ThemeChoice};
 use mterm_updater::{Release, Stage, Staged};
 use std::time::SystemTime;
 
@@ -70,6 +70,12 @@ impl AppModel {
 
   pub fn set_theme(&mut self, choice: ThemeChoice, cx: &mut Context<Self>) {
     self.preferences.theme = choice;
+    self.save(cx);
+  }
+
+  pub fn set_font(&mut self, choice: FontChoice, cx: &mut Context<Self>) {
+    self.preferences.font = choice;
+    crate::theme::apply_font(choice, cx);
     self.save(cx);
   }
 

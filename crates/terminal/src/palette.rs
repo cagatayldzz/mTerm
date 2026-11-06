@@ -107,7 +107,7 @@ impl Palette {
     }
   }
 
-  fn indexed(&self, index: u8) -> Rgb {
+  pub(crate) fn indexed(&self, index: u8) -> Rgb {
     match index {
       0..=15 => self.ansi[index as usize],
       16..=231 => {

@@ -15,7 +15,7 @@ use gpui_kit::{
   },
   *,
 };
-use mterm_storage::ThemeChoice;
+use mterm_storage::{FontChoice, ThemeChoice};
 use mterm_updater::Stage;
 
 /// The pages of Settings.
@@ -41,21 +41,47 @@ pub(crate) fn render_settings(model: &Entity<AppModel>, page: SettingsPage, epoc
   let model = model.clone();
 
   let (theme_get, theme_set) = (model.clone(), model.clone());
+  let (font_get, font_set) = (model.clone(), model.clone());
   let general = SettingPage::new("General").icon(IconName::Settings).description("How mTerm looks.").group(
-    SettingGroup::new().title("Appearance").item(
-      SettingItem::new(
-        "Theme",
-        SettingField::dropdown(
-          theme_options(),
-          move |cx| theme_get.read(cx).theme().code().into(),
-          move |value, cx| {
-            let choice = ThemeChoice::from_code(value.as_ref());
-            theme_set.update(cx, |model, cx| model.set_theme(choice, cx));
-          },
-        ),
+    SettingGroup::new()
+      .title("Appearance")
+      .item(
+        SettingItem::new(
+          "Theme",
+          SettingField::dropdown(
+            theme_options(),
+            move |cx| theme_get.read(cx).theme().code().into(),
+            move |value, cx| {
+              let choice = ThemeChoice::from_code(value.as_ref());
+              theme_set.update(cx, |model, cx| model.set_theme(choice, cx));
+            },
+          ),
+        )
+        .description("Choose a theme or follow your computer's appearance."),
       )
-      .description("Choose a theme or follow your computer's appearance."),
-    ),
+      .item(
+        SettingItem::new(
+          "Font",
+          SettingField::dropdown(
+            FontChoice::ALL
+              .map(|choice| {
+                (
+                  choice.code().into(),
+                  match choice {
+                    FontChoice::Default => "Default",
+                    FontChoice::Geist => "Geist",
+                    FontChoice::Inter => "Inter",
+                  }
+                  .into(),
+                )
+              })
+              .to_vec(),
+            move |cx| font_get.read(cx).preferences.font.code().into(),
+            move |value, cx| font_set.update(cx, |model, cx| model.set_font(FontChoice::from_code(value.as_ref()), cx)),
+          ),
+        )
+        .description("Choose the font used by the interface."),
+      ),
   );
 
   let (check_get, check_set, panel_model) = (model.clone(), model.clone(), model.clone());
@@ -102,7 +128,8 @@ fn theme_options() -> Vec<(SharedString, SharedString)> {
         ThemeChoice::System => "System default",
         ThemeChoice::Light => "Light",
         ThemeChoice::Dark => "Dark",
-        ThemeChoice::Slate => "Slate",
+        ThemeChoice::SlateDark => "Slate Dark",
+        ThemeChoice::SlateLight => "Slate Light",
       };
       (choice.code().into(), label.into())
     })

@@ -43,6 +43,12 @@ actions!(
 
 /// Creates the model every window shares and, when enabled, checks for a new release.
 pub fn init(cx: &mut App) {
+  if let Err(error) = cx.text_system().add_fonts(vec![
+    std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/Geist.ttf")),
+    std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/Inter.ttf")),
+  ]) {
+    eprintln!("Could not load interface fonts: {error}");
+  }
   let model = cx.new(|_| AppModel::new());
   cx.set_global(AppGlobal(model.clone()));
   if APP_UPDATES_ENABLED && model.read(cx).preferences.check_updates {

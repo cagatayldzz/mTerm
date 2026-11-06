@@ -11,7 +11,7 @@ use crate::{
 use futures::StreamExt as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-  component::{h_flex, v_flex, ActiveTheme, WindowExt as _},
+  component::{button::Button, h_flex, v_flex, ActiveTheme, Sizable, WindowExt as _},
   *,
 };
 use mterm_storage::{History, ThemeChoice};
@@ -132,12 +132,12 @@ impl Workspace {
       focus_handle,
       _subscriptions: subscriptions,
     };
-    workspace.new_tab();
+    workspace.new_tab(cx);
     if let Some(layout) = mterm_storage::SavedLayout::load().and_then(|text| Node::decode(&text)) {
       let count = layout.leaves().len();
       let mut ids = workspace.tabs.first().map(|tab| vec![tab.focused]).unwrap_or_default();
       while ids.len() < count {
-        let Some(id) = workspace.spawn_pane() else { break };
+        let Some(id) = workspace.spawn_pane(cx) else { break };
         ids.push(id);
       }
       if ids.len() == count {
@@ -180,9 +180,17 @@ impl Workspace {
       return;
     }
     self.model.update(cx, |model, _| model.announced = Some(release.version.clone()));
+    let workspace = cx.weak_entity();
     window.push_notification(
-      component::notification::Notification::info(format!("mTerm {} is available. Open Settings → Updates to install it.", release.version))
-        .title("Update available"),
+      component::notification::Notification::info(format!("mTerm {} is available.", release.version)).title("Update available").action(
+        move |_, _, cx| {
+          let workspace = workspace.clone();
+          Button::new("open-update-settings").label("View update").small().on_click(cx.listener(move |notification, _, window, cx| {
+            let _ = workspace.update(cx, |workspace, cx| workspace.open_settings(SettingsPage::Updates, window, cx));
+            notification.dismiss(window, cx);
+          }))
+        },
+      ),
       cx,
     );
   }
@@ -205,10 +213,14 @@ impl Workspace {
 
   // Panes, tabs and splits
 
-  fn spawn_pane(&mut self) -> Option<PaneId> {
+  fn spawn_pane(&mut self, cx: &App) -> Option<PaneId> {
     let id = self.next_pane;
     let sender = self.events.clone();
-    let options = SessionOptions { program: None, working_directory: self.directory.clone().or_else(|| std::env::var_os("HOME").map(Into::into)) };
+    let options = SessionOptions {
+      program: None,
+      working_directory: self.directory.clone().or_else(|| std::env::var_os("HOME").map(Into::into)),
+      palette: Some(Self::palette(cx)),
+    };
     match Session::spawn(options, 80, 24, move |event| {
       let _ = sender.unbounded_send((id, event));
     }) {
@@ -226,16 +238,16 @@ impl Workspace {
     }
   }
 
-  pub(crate) fn new_tab(&mut self) {
-    if let Some(id) = self.spawn_pane() {
+  pub(crate) fn new_tab(&mut self, cx: &App) {
+    if let Some(id) = self.spawn_pane(cx) {
       self.tabs.push(Tab { root: Node::Leaf(id), focused: id });
       self.active = self.tabs.len() - 1;
     }
   }
 
-  pub(crate) fn split(&mut self, split: Split) {
+  pub(crate) fn split(&mut self, split: Split, cx: &App) {
     let Some(focused) = self.tabs.get(self.active).map(|tab| tab.focused) else { return };
-    if let Some(id) = self.spawn_pane() {
+    if let Some(id) = self.spawn_pane(cx) {
       let tab = &mut self.tabs[self.active];
       if tab.root.split(focused, id, split) {
         tab.focused = id;
@@ -443,12 +455,19 @@ impl Workspace {
   }
 
   pub(crate) fn palette(cx: &App) -> Palette {
-    if cx.global::<AppGlobal>().0.read(cx).theme() == ThemeChoice::Slate {
+    if cx.global::<AppGlobal>().0.read(cx).theme() == ThemeChoice::SlateDark {
       let mut palette = Palette::dark();
       palette.background = mterm_terminal::Rgb::new(0x1e, 0x24, 0x28);
       palette.foreground = mterm_terminal::Rgb::new(0xe4, 0xe8, 0xed);
       palette.ansi[0] = palette.background;
       palette.ansi[7] = palette.foreground;
+      palette
+    } else if cx.global::<AppGlobal>().0.read(cx).theme() == ThemeChoice::SlateLight {
+      let mut palette = Palette::light();
+      palette.background = mterm_terminal::Rgb::new(0xfa, 0xfa, 0xfa);
+      palette.foreground = mterm_terminal::Rgb::new(0x1e, 0x29, 0x3b);
+      palette.ansi[0] = palette.foreground;
+      palette.ansi[7] = palette.background;
       palette
     } else if cx.theme().is_dark() {
       Palette::dark()
@@ -492,16 +511,16 @@ impl Render for Workspace {
       .on_action(cx.listener(|this, _: &ClearScreen, _, _| this.write(vec![0x0c])))
       .on_action(cx.listener(|this, _: &ClearHistory, window, cx| this.confirm_clear_history(window, cx)))
       .on_action(cx.listener(|this, _: &NewTab, window, cx| {
-        this.new_tab();
+        this.new_tab(cx);
         this.focus_handle.focus(window, cx);
         cx.notify();
       }))
       .on_action(cx.listener(|this, _: &SplitVertically, _, cx| {
-        this.split(Split::Vertically);
+        this.split(Split::Vertically, cx);
         cx.notify();
       }))
       .on_action(cx.listener(|this, _: &SplitHorizontally, _, cx| {
-        this.split(Split::Horizontally);
+        this.split(Split::Horizontally, cx);
         cx.notify();
       }))
       .on_action(cx.listener(|this, _: &ClosePane, window, cx| {

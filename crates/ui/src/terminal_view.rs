@@ -5,7 +5,12 @@ use crate::{
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-  component::{menu::ContextMenuExt as _, ActiveTheme},
+  component::{
+    button::{Button, ButtonVariants},
+    h_flex,
+    menu::{ContextMenuExt as _, DropdownMenu as _},
+    ActiveTheme, Icon, IconName, Sizable,
+  },
   *,
 };
 use mterm_terminal::{Palette, Rgb, Snapshot};
@@ -14,6 +19,8 @@ const FONT_FAMILY: &str = "Menlo";
 const FONT_SIZE: Pixels = px(13.);
 const LINE_HEIGHT: Pixels = px(17.);
 const PADDING: Pixels = px(12.);
+const DIVIDER_WIDTH: Pixels = px(2.);
+const PANE_HEADER_HEIGHT: Pixels = px(28.);
 /// How dark the veil over an unfocused split pane is.
 const PANE_VEIL: f32 = 0.18;
 
@@ -68,7 +75,7 @@ impl Workspace {
     let mut panes = Vec::new();
     let mut dividers = Vec::new();
     place(&root, area, &mut panes, &mut dividers, &mut Vec::new(), sidebar);
-    let border = cx.theme().border;
+    let border = cx.theme().foreground.opacity(0.35);
     let panes: Vec<_> = panes.into_iter().map(|(id, bounds)| self.render_pane(id, bounds, id == focused, split, &metrics, cx)).collect();
     div()
       .flex_1()
@@ -81,7 +88,7 @@ impl Workspace {
           Split::Vertically => (event.event.position.x - drag.sidebar, drag.area.origin.x, drag.area.size.width),
           Split::Horizontally => (event.event.position.y - TOOLBAR_HEIGHT, drag.area.origin.y, drag.area.size.height),
         };
-        let fraction = f32::from(position - origin) / f32::from(extent - px(1.));
+        let fraction = f32::from(position - origin) / f32::from(extent - DIVIDER_WIDTH);
         let ratio = (fraction.clamp(0.1, 0.9) * 10000.) as u16;
         if let Some(tab) = this.tabs.get_mut(this.active) {
           if tab.root.set_ratio(&drag.path, ratio) {
@@ -118,11 +125,14 @@ impl Workspace {
 
   fn render_pane(&self, id: PaneId, bounds: Bounds<Pixels>, focused: bool, split: bool, metrics: &Metrics, cx: &mut Context<Self>) -> AnyElement {
     let Some(pane) = self.panes.get(&id) else { return div().into_any_element() };
+    pane.session.set_palette(metrics.palette.clone());
     let snapshot = pane.session.snapshot(&metrics.palette);
     let session = pane.session.clone();
     let cell_width = f32::from(metrics.cell_width);
     let background = color(metrics.palette.background);
     let action_context = self.focus_handle.clone();
+    let header_height = if split { PANE_HEADER_HEIGHT } else { px(0.) };
+    let title = pane.title.clone();
 
     div()
       .id(("pane", id))
@@ -158,15 +168,19 @@ impl Workspace {
           |_, _, _, _| {},
         )
         .absolute()
-        .size_full(),
+        .top(header_height)
+        .left_0()
+        .right_0()
+        .bottom_0(),
       )
       .child(
         // Out of the flow, so a pane's size comes only from the space layout gives it.
         div()
           .absolute()
-          .top_0()
+          .top(header_height)
           .left_0()
-          .size_full()
+          .right_0()
+          .bottom_0()
           .overflow_hidden()
           .p(PADDING)
           .text_size(FONT_SIZE)
@@ -175,7 +189,8 @@ impl Workspace {
           .child(rows(&snapshot, &metrics.font)),
       )
       // Panes other than the focused one sit under a lighter veil of the same kind.
-      .when(split && !focused, |this| this.child(div().absolute().top_0().left_0().size_full().bg(black().opacity(PANE_VEIL))))
+      .when(split && !focused, |this| this.child(div().absolute().top(header_height).left_0().right_0().bottom_0().bg(black().opacity(PANE_VEIL))))
+      .when(split, |this| this.child(self.render_pane_header(id, title, focused, cx)))
       .context_menu(move |menu, _, _| {
         menu
           .action_context(action_context.clone())
@@ -192,9 +207,59 @@ impl Workspace {
       })
       .into_any_element()
   }
+
+  fn render_pane_header(&self, id: PaneId, title: String, focused: bool, cx: &mut Context<Self>) -> impl IntoElement {
+    let theme = cx.theme().clone();
+    let action_context = self.focus_handle.clone();
+    let workspace = cx.weak_entity();
+    h_flex()
+      .absolute()
+      .top_0()
+      .left_0()
+      .right_0()
+      .h(PANE_HEADER_HEIGHT)
+      .items_center()
+      .gap_1()
+      .px_1()
+      .bg(if focused { theme.secondary } else { theme.muted })
+      .border_b_1()
+      .border_color(theme.foreground.opacity(0.25))
+      .text_color(if focused { theme.foreground } else { theme.muted_foreground })
+      .child(Button::new(("pane-close", id)).icon(IconName::Close).ghost().xsmall().on_click(cx.listener(move |this, _, window, cx| {
+        cx.stop_propagation();
+        this.close_pane(id, window);
+        cx.notify();
+      })))
+      .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().text_size(px(12.)).child(title))
+      .child(
+        Button::new(("pane-menu", id))
+          .icon(Icon::new(gpui_kit_assets::IconName::CircleEllipsis))
+          .ghost()
+          .xsmall()
+          .dropdown_menu(move |menu, _, _| {
+            menu
+              .action_context(action_context.clone())
+              .menu("New Window", Box::new(NewWindow))
+              .menu("New Tab", Box::new(NewTab))
+              .separator()
+              .menu("Split Pane Vertically", Box::new(SplitVertically))
+              .menu("Split Pane Horizontally", Box::new(SplitHorizontally))
+              .separator()
+              .menu("Paste", Box::new(Paste))
+              .menu("Clear Buffer", Box::new(ClearScreen))
+              .separator()
+              .menu("Close", Box::new(ClosePane))
+          })
+          .on_open_change(move |open, window, cx| {
+            if *open {
+              let _ = workspace.update(cx, |workspace, cx| workspace.focus_pane(id, window, cx));
+            }
+          }),
+      )
+  }
 }
 
-/// Divides `area` among the panes of `node`, with a one pixel divider between halves.
+/// Divides `area` among the panes of `node`, leaving room for the divider.
 fn place(
   node: &Node,
   area: Bounds<Pixels>,
@@ -206,7 +271,7 @@ fn place(
   match node {
     Node::Leaf(id) => panes.push((*id, area)),
     Node::Split { split, ratio, first, second } => {
-      let line = px(1.);
+      let line = DIVIDER_WIDTH;
       let (origin, extent) = (area.origin, area.size);
       let (first_area, divider, second_area) = if *split == Split::Vertically {
         let width = ((extent.width - line) * (f32::from(*ratio) / 10000.)).floor();

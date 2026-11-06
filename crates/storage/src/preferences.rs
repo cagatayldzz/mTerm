@@ -12,11 +12,12 @@ pub enum ThemeChoice {
   System,
   Light,
   Dark,
-  Slate,
+  SlateDark,
+  SlateLight,
 }
 
 impl ThemeChoice {
-  pub const ALL: [Self; 4] = [Self::System, Self::Light, Self::Dark, Self::Slate];
+  pub const ALL: [Self; 5] = [Self::System, Self::Light, Self::Dark, Self::SlateDark, Self::SlateLight];
 
   /// The stored code.
   pub fn code(self) -> &'static str {
@@ -24,7 +25,8 @@ impl ThemeChoice {
       Self::System => "system",
       Self::Light => "light",
       Self::Dark => "dark",
-      Self::Slate => "slate",
+      Self::SlateDark => "slate-dark",
+      Self::SlateLight => "slate-light",
     }
   }
 
@@ -33,8 +35,38 @@ impl ThemeChoice {
     match code.trim() {
       "light" => Self::Light,
       "dark" => Self::Dark,
-      "slate" => Self::Slate,
+      "slate" | "slate-dark" => Self::SlateDark,
+      "slate-light" => Self::SlateLight,
       _ => Self::System,
+    }
+  }
+}
+
+/// The font used by the application interface.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FontChoice {
+  #[default]
+  Default,
+  Geist,
+  Inter,
+}
+
+impl FontChoice {
+  pub const ALL: [Self; 3] = [Self::Default, Self::Geist, Self::Inter];
+
+  pub fn code(self) -> &'static str {
+    match self {
+      Self::Default => "default",
+      Self::Geist => "geist",
+      Self::Inter => "inter",
+    }
+  }
+
+  pub fn from_code(code: &str) -> Self {
+    match code.trim() {
+      "geist" => Self::Geist,
+      "inter" => Self::Inter,
+      _ => Self::Default,
     }
   }
 }
@@ -46,11 +78,12 @@ pub struct Preferences {
   /// Look for a new mTerm release when the app starts.
   pub check_updates: bool,
   pub theme: ThemeChoice,
+  pub font: FontChoice,
 }
 
 impl Default for Preferences {
   fn default() -> Self {
-    Self { sidebar_open: true, check_updates: true, theme: ThemeChoice::System }
+    Self { sidebar_open: true, check_updates: true, theme: ThemeChoice::System, font: FontChoice::Default }
   }
 }
 
@@ -68,6 +101,7 @@ impl Preferences {
         "sidebar_open" => preferences.sidebar_open = value.trim().parse().unwrap_or(preferences.sidebar_open),
         "check_updates" => preferences.check_updates = value.trim().parse().unwrap_or(preferences.check_updates),
         "theme" => preferences.theme = ThemeChoice::from_code(value),
+        "font" => preferences.font = FontChoice::from_code(value),
         _ => {}
       }
     }
@@ -78,6 +112,9 @@ impl Preferences {
     if let Some(parent) = path.parent() {
       fs::create_dir_all(parent)?;
     }
-    fs::write(path, format!("sidebar_open={}\ncheck_updates={}\ntheme={}\n", self.sidebar_open, self.check_updates, self.theme.code()))
+    fs::write(
+      path,
+      format!("sidebar_open={}\ncheck_updates={}\ntheme={}\nfont={}\n", self.sidebar_open, self.check_updates, self.theme.code(), self.font.code()),
+    )
   }
 }
