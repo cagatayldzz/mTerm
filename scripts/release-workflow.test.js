@@ -8,6 +8,8 @@ function yaml(path) {
 test("release builds wait for validation and publication waits for verified artifacts", () => {
   const { jobs } = yaml(".github/workflows/release.yml");
   expect(jobs.prepare.needs).toBe("validate");
+  const notes = jobs.prepare.steps.find((step) => step.name === "Generate release notes");
+  expect(notes.run.trim()).toBe("bun scripts/release-ci.js notes");
   expect(jobs.macos_arm64.needs).toBe("prepare");
   expect(jobs.macos_arm64["continue-on-error"] ?? false).toBe(false);
   expect(jobs.macos_arm64.steps.some((step) => step.uses === "./.github/actions/build-release")).toBe(true);

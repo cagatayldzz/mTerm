@@ -79,9 +79,7 @@ jobs:
       - name: Generate release notes
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: |
-          bun scripts/release-ci.js notes
-          cat docs/platform-support.md >> dist/RELEASE_NOTES.md
+        run: bun scripts/release-ci.js notes
       - name: Preserve versioned build inputs
         uses: actions/upload-artifact@v7
         with:

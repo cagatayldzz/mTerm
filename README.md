@@ -7,6 +7,11 @@ mTerm opens a window with tabs and split panes: a collapsible sidebar on the lef
 you have run, and the terminal fills the rest. Right-click a pane for New Window, New Tab, and Split Pane. Click a history entry to type it at
 the prompt. Terminal emulation is provided by `alacritty_terminal`.
 
+<p>
+  <img src="docs/images/terminal.png" alt="mTerm with split terminal panes" width="49%">
+  <img src="docs/images/settings.png" alt="mTerm settings dialog" width="49%">
+</p>
+
 ## Requirements
 
 - Apple Silicon, macOS 15+

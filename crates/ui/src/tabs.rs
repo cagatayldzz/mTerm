@@ -21,23 +21,11 @@ impl Workspace {
   pub(crate) fn render_band(&self, cx: &mut Context<Self>) -> impl IntoElement {
     let theme = cx.theme().clone();
     let background = rgb(Self::palette(cx).background.hex());
-    let settings_open = self.settings.is_some();
-    // The sidebar is hidden while Settings are open, so the band clears the traffic lights itself.
-    let open = self.sidebar_open && !settings_open;
+    let open = self.sidebar_open;
     let icon = if open { IconName::PanelLeftClose } else { IconName::PanelLeftOpen };
     let tooltip = if open { "Hide history (⌘B)" } else { "Show history (⌘B)" };
 
-    let middle = if settings_open {
-      div()
-        .flex_1()
-        .min_w_0()
-        .text_center()
-        .text_size(px(13.))
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(theme.foreground.opacity(0.6))
-        .child("Settings")
-        .into_any_element()
-    } else if self.tabs.len() > 1 {
+    let middle = if self.tabs.len() > 1 {
       h_flex()
         .flex_1()
         .min_w_0()
@@ -68,22 +56,7 @@ impl Workspace {
       .bg(background)
       .border_b_1()
       .border_color(band_line(&theme))
-      .child(
-        h_flex()
-          .w_full()
-          .h_full()
-          .items_center()
-          .gap_2()
-          .child(if settings_open { div().w(px(24.)).into_any_element() } else { sidebar_toggle(icon, tooltip).into_any_element() })
-          .child(middle)
-          // Closes Settings; otherwise it balances the toggle so a lone title stays centered.
-          .child(if settings_open {
-            icon_button("close-settings", IconName::Close, "Close Settings (Esc)", cx.listener(|this, _, window, cx| this.close_settings(window, cx)))
-              .into_any_element()
-          } else {
-            div().w(px(24.)).into_any_element()
-          }),
-      )
+      .child(h_flex().w_full().h_full().items_center().gap_2().child(sidebar_toggle(icon, tooltip)).child(middle).child(div().w(px(24.))))
   }
 
   fn render_tabs(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {

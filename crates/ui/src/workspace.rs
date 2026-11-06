@@ -136,7 +136,7 @@ impl Workspace {
     workspace
   }
 
-  /// Shows Settings in place of the terminal, or closes them when already open.
+  /// Shows Settings, or closes them when already open.
   pub(crate) fn toggle_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
     if self.settings.is_some() {
       self.close_settings(window, cx);
@@ -427,10 +427,7 @@ impl Workspace {
 impl Render for Workspace {
   fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
     let theme = cx.theme().clone();
-    let content = match self.settings {
-      Some(page) => render_settings(&self.model, page, self.settings_epoch, cx).into_any_element(),
-      None => self.render_tab_content(window, cx),
-    };
+    let content = self.render_tab_content(window, cx);
     let page = v_flex().flex_1().min_w_0().h_full().child(self.render_band(cx)).child(content);
     // Only dim while another mTerm window has the focus. When the whole app goes to the background
     // (another app in front), the windows keep their normal look.
@@ -484,9 +481,40 @@ impl Render for Workspace {
       .size_full()
       .bg(theme.background)
       .text_color(theme.foreground)
-      // Settings take the whole window: the history sidebar is part of the terminal, not of Settings.
-      .when(self.sidebar_open && self.settings.is_none(), |this| this.child(self.render_history(cx)))
+      .when(self.sidebar_open, |this| this.child(self.render_history(cx)))
       .child(page)
+      .when_some(self.settings, |this, settings_page| {
+        this.child(
+          div().absolute().inset_0().flex().items_center().justify_center().bg(black().opacity(0.45)).child(
+            v_flex()
+              .w(px(600.))
+              .max_w_full()
+              .h(px(600.))
+              .max_h_full()
+              .overflow_hidden()
+              .rounded_lg()
+              .border_1()
+              .border_color(theme.border)
+              .bg(theme.background)
+              .child(
+                h_flex()
+                  .h(px(50.))
+                  .px_4()
+                  .items_center()
+                  .border_b_1()
+                  .border_color(theme.border)
+                  .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).child("Settings"))
+                  .child(crate::history::icon_button(
+                    "close-settings",
+                    gpui_kit::component::IconName::Close,
+                    "Close Settings (Esc)",
+                    cx.listener(|this, _, window, cx| this.close_settings(window, cx)),
+                  )),
+              )
+              .child(div().flex_1().min_h_0().child(render_settings(&self.model, settings_page, self.settings_epoch, cx))),
+          ),
+        )
+      })
       // A soft black veil over every window that is not the one in use.
       .when(inactive, |this| this.child(div().absolute().top_0().left_0().size_full().bg(black().opacity(INACTIVE_VEIL))))
   }

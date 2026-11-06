@@ -34,7 +34,7 @@ impl SettingsPage {
   }
 }
 
-/// The Settings page shown in place of the terminal. `epoch` changes whenever it is opened, so the
+/// The Settings panel. `epoch` changes whenever it is opened, so the
 /// component starts on `page` again instead of keeping its own selection.
 pub(crate) fn render_settings(model: &Entity<AppModel>, page: SettingsPage, epoch: u64, cx: &App) -> impl IntoElement {
   let theme = cx.theme().clone();

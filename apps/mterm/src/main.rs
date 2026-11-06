@@ -108,7 +108,18 @@ fn open_window(directory: Option<PathBuf>, cx: &mut App) {
       save_window_size(window);
       true
     });
-    cx.new(|cx| Workspace::new(directory.clone(), window, cx))
+    cx.new(|cx| {
+      let mut last_size = None;
+      cx.observe_window_bounds(window, move |_, window, _| {
+        let size = window.window_bounds().get_bounds().size;
+        if last_size != Some(size) {
+          save_window_size(window);
+          last_size = Some(size);
+        }
+      })
+      .detach();
+      Workspace::new(directory.clone(), window, cx)
+    })
   })
   .expect("Failed to open the mTerm window");
 }
