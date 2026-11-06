@@ -6,7 +6,7 @@ use futures::StreamExt as _;
 use gpui_kit::{component::TitleBar, *};
 use mterm_storage::{directory_from_url, WindowSize};
 use mterm_ui::{
-  Assets, CheckForUpdates, ClearHistory, ClearScreen, ClosePane, Hide, HideOthers, Minimize, NewTab, NewWindow, NextTab, OpenSettings, Paste,
+  Assets, CheckForUpdates, ClearHistory, ClearScreen, ClosePane, Copy, Hide, HideOthers, Minimize, NewTab, NewWindow, NextTab, OpenSettings, Paste,
   PreviousTab, Quit, ShowAll, SplitHorizontally, SplitVertically, Workspace, Zoom, CONTEXT, TOOLBAR_HEIGHT,
 };
 use std::{path::PathBuf, time::Duration};
@@ -146,6 +146,7 @@ fn bind_keys(cx: &mut App) {
     KeyBinding::new("cmd-w", ClosePane, Some(CONTEXT)),
     KeyBinding::new("shift-cmd-]", NextTab, Some(CONTEXT)),
     KeyBinding::new("shift-cmd-[", PreviousTab, Some(CONTEXT)),
+    KeyBinding::new("cmd-c", Copy, Some(CONTEXT)),
     KeyBinding::new("cmd-v", Paste, Some(CONTEXT)),
     KeyBinding::new("cmd-k", ClearScreen, Some(CONTEXT)),
   ]);
@@ -189,7 +190,12 @@ fn set_menus(cx: &mut App) {
       MenuItem::separator(),
       MenuItem::action("Close", ClosePane),
     ]),
-    Menu::new("Edit").items([MenuItem::action("Paste", Paste), MenuItem::separator(), MenuItem::action("Clear Screen", ClearScreen)]),
+    Menu::new("Edit").items([
+      MenuItem::action("Copy", Copy),
+      MenuItem::action("Paste", Paste),
+      MenuItem::separator(),
+      MenuItem::action("Clear Screen", ClearScreen),
+    ]),
     Menu::new("View").items([
       MenuItem::action("Clear History", ClearHistory),
       MenuItem::separator(),

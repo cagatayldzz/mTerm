@@ -1,7 +1,7 @@
 use crate::{
   layout::{Node, PaneId, Split},
   settings::{render_settings, SettingsPage},
-  CheckForUpdates, ClearHistory, ClearScreen, ClosePane, NewTab, NextTab, OpenSettings, Paste, PreviousTab, SplitHorizontally, SplitVertically,
+  CheckForUpdates, ClearHistory, ClearScreen, ClosePane, Copy, NewTab, NextTab, OpenSettings, Paste, PreviousTab, SplitHorizontally, SplitVertically,
 };
 use crate::{
   model::{AppGlobal, AppModel, AppUpdate},
@@ -46,6 +46,7 @@ pub(crate) struct Pane {
   line_unreliable: bool,
   /// Fractional lines left over from smooth scrolling.
   pub scroll_remainder: f32,
+  pub selection: Option<((usize, usize), (usize, usize))>,
 }
 
 /// A tab: an arrangement of panes and the one that has the keyboard.
@@ -265,6 +266,7 @@ impl Workspace {
             line: String::new(),
             line_unreliable: false,
             scroll_remainder: 0.,
+            selection: None,
           },
         );
         Some(id)
@@ -720,6 +722,34 @@ impl Workspace {
     .detach();
   }
 
+  fn copy(&mut self, cx: &mut Context<Self>) {
+    let Some(pane) = self.focused_pane() else { return };
+    let Some((anchor, end)) = pane.selection else { return };
+    if anchor == end {
+      return;
+    }
+    let (start, end) = if anchor < end { (anchor, end) } else { (end, anchor) };
+    let snapshot = pane.session.snapshot(&Self::palette(cx));
+    let mut lines = Vec::new();
+    for line in start.0..=end.0.min(snapshot.lines.len().saturating_sub(1)) {
+      let text: String = snapshot.lines[line].iter().map(|span| span.text.as_str()).collect();
+      let from = if line == start.0 { start.1 } else { 0 };
+      let to = if line == end.0 { end.1 } else { snapshot.columns };
+      let mut column = 0;
+      let selected: String = text
+        .chars()
+        .filter(|character| {
+          let width = unicode_width::UnicodeWidthChar::width(*character).unwrap_or(0);
+          let include = column < to && column + width > from;
+          column += width;
+          include
+        })
+        .collect();
+      lines.push(selected.trim_end().to_owned());
+    }
+    cx.write_to_clipboard(ClipboardItem::new_string(lines.join("\n")));
+  }
+
   fn paste(&mut self, window: &mut Window, cx: &mut Context<Self>) {
     if self.settings.is_some() {
       return;
@@ -784,6 +814,7 @@ impl Render for Workspace {
       .key_context(CONTEXT)
       .track_focus(&self.focus_handle)
       .on_key_down(cx.listener(Self::on_key_down))
+      .on_action(cx.listener(|this, _: &Copy, _, cx| this.copy(cx)))
       .on_action(cx.listener(|this, _: &Paste, window, cx| this.paste(window, cx)))
       .on_action(cx.listener(|this, _: &OpenSettings, window, cx| this.toggle_settings(window, cx)))
       .on_action(cx.listener(|this, _: &CheckForUpdates, window, cx| {

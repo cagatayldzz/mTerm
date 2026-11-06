@@ -1,7 +1,7 @@
 use crate::{
   layout::{Node, PaneId, Split},
   workspace::{Workspace, TOOLBAR_HEIGHT},
-  ClearScreen, ClosePane, NewTab, NewWindow, Paste, SplitHorizontally, SplitVertically,
+  ClearScreen, ClosePane, Copy, NewTab, NewWindow, Paste, SplitHorizontally, SplitVertically,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -193,6 +193,10 @@ impl Workspace {
     let content_bounds = pane.content_bounds.clone();
     let click_bounds = content_bounds.clone();
     let click_palette = metrics.palette.clone();
+    let move_bounds = content_bounds.clone();
+    let selection = pane.selection;
+    let columns = snapshot.columns;
+    let line_count = snapshot.lines.len();
     let hovered = if window.modifiers().platform {
       content_bounds.get().and_then(|bounds| cell_at(bounds, window.mouse_position(), cell_width, line_height)).and_then(|(line, column)| {
         let target = snapshot.link_at(line, column)?;
@@ -220,7 +224,19 @@ impl Workspace {
       .h(bounds.size.height)
       .overflow_hidden()
       .bg(background)
-      .on_mouse_move(cx.listener(|_, _, window, cx| {
+      .on_mouse_move(cx.listener(move |this, event: &MouseMoveEvent, window, cx| {
+        if event.pressed_button == Some(MouseButton::Left) {
+          if let (Some(bounds), Some(pane)) = (move_bounds.get(), this.panes.get_mut(&id)) {
+            if let Some((anchor, _)) = pane.selection {
+              let x = f32::from(event.position.x - bounds.origin.x - PADDING);
+              let y = f32::from(event.position.y - bounds.origin.y - PADDING);
+              let line = (y / f32::from(line_height)).floor().max(0.) as usize;
+              let column = (x / cell_width).round().max(0.) as usize;
+              pane.selection = Some((anchor, (line.min(line_count.saturating_sub(1)), column.min(columns))));
+              cx.notify();
+            }
+          }
+        }
         if window.modifiers().platform {
           cx.notify();
         }
@@ -231,6 +247,15 @@ impl Workspace {
         cx.listener(move |this, event: &MouseDownEvent, window, cx| {
           this.focus_pane(id, window, cx);
           if !event.modifiers.platform {
+            if let Some(bounds) = click_bounds.get() {
+              if let Some((line, column)) = cell_at(bounds, event.position, cell_width, line_height) {
+                if let Some(pane) = this.panes.get_mut(&id) {
+                  let position = (line.min(line_count.saturating_sub(1)), column.min(columns));
+                  pane.selection = Some((position, position));
+                  cx.notify();
+                }
+              }
+            }
             return;
           }
           let Some(bounds) = click_bounds.get() else { return };
@@ -331,6 +356,22 @@ impl Workspace {
             rows(&snapshot, &metrics.font, line_height).into_any_element()
           }),
       )
+      .when_some(selection, |this, (anchor, end)| {
+        let (start, end) = if anchor < end { (anchor, end) } else { (end, anchor) };
+        this.children((start.0..=end.0).filter_map(|line| {
+          let from = if line == start.0 { start.1 } else { 0 };
+          let to = if line == end.0 { end.1 } else { columns };
+          (to > from).then(|| {
+            div()
+              .absolute()
+              .left(PADDING + metrics.cell_width * from as f32)
+              .top(header_height + PADDING + line_height * line as f32)
+              .w(metrics.cell_width * (to - from) as f32)
+              .h(line_height)
+              .bg(gpui_kit::rgb(0x69a9ff).opacity(0.4))
+          })
+        }))
+      })
       // Panes other than the focused one sit under a lighter veil of the same kind.
       .when(split && !focused, |this| this.child(div().absolute().top(header_height).left_0().right_0().bottom_0().bg(black().opacity(PANE_VEIL))))
       .when(split, |this| this.child(self.render_pane_header(id, title, focused, cx)))
@@ -343,6 +384,7 @@ impl Workspace {
           .menu("Split Pane Vertically", Box::new(SplitVertically))
           .menu("Split Pane Horizontally", Box::new(SplitHorizontally))
           .separator()
+          .menu("Copy", Box::new(Copy))
           .menu("Paste", Box::new(Paste))
           .menu("Clear Buffer", Box::new(ClearScreen))
           .separator()
@@ -388,6 +430,7 @@ impl Workspace {
               .menu("Split Pane Vertically", Box::new(SplitVertically))
               .menu("Split Pane Horizontally", Box::new(SplitHorizontally))
               .separator()
+              .menu("Copy", Box::new(Copy))
               .menu("Paste", Box::new(Paste))
               .menu("Clear Buffer", Box::new(ClearScreen))
               .separator()

@@ -25,6 +25,7 @@ actions!(
     ShowAll,
     Minimize,
     Zoom,
+    Copy,
     Paste,
     ClearScreen,
     ClearHistory,
