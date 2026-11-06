@@ -17,7 +17,7 @@ apps/mterm ──► ui ──► terminal
 | `storage` | data directory, `WindowSize`, `History`, `Preferences` | none |
 | `version` | numeric version comparison | none |
 | `updater` | release lookup, download, verification, bundle swap | version |
-| `ui` | `AppModel` (shared preferences and update state), `Workspace` (top band, history sidebar, tabs and panes), the Settings page, actions, assets | terminal, storage, updater, gpui-kit |
+| `ui` | `AppModel` (shared preferences and update state), `Workspace` (top band, history sidebar, tabs and panes), the Settings panel, actions, assets | terminal, storage, updater, gpui-kit |
 | `apps/mterm` | window, menus, key bindings, quit handling | ui, storage, gpui-kit |
 
 `terminal` and `storage` know nothing about the interface, so they are tested
@@ -50,7 +50,7 @@ New windows are opened by the app (`⌘N` / the context menu's `NewWindow` actio
 `AppModel` is one entity shared by every window. It owns the saved `Preferences`
 (sidebar state, theme, automatic update checks) and mTerm's own update state. Windows
 observe it, so a theme change or a new release reaches all of them. Settings (`⌘,`, or
-the gear in the sidebar) replace the terminal inside the window and edit it; `Esc` closes them.
+the gear in the sidebar) open a panel over the terminal to edit them; `Esc` closes it.
 
 Updates follow TendKit: the updater asks the GitHub releases API for the latest release,
 downloads `mTerm-<tag>-macos-arm64.zip` only when asked, and verifies it against

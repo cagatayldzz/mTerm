@@ -1,5 +1,12 @@
 # Development
 
+## Requirements
+
+- Apple Silicon and macOS 15 or later
+- Command Line Tools (Xcode is not required)
+- Stable Rust and Cargo
+- Bun
+
 ## Commands
 
 ```sh
