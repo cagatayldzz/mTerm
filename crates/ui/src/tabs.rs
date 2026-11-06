@@ -25,7 +25,7 @@ impl Workspace {
     let icon = if open { IconName::PanelLeftClose } else { IconName::PanelLeftOpen };
     let tooltip = if open { "Hide sessions (⌘B)" } else { "Show sessions (⌘B)" };
 
-    let middle = if self.tabs.len() > 1 {
+    let middle = if self.active_tab_indices().len() > 1 {
       h_flex()
         .flex_1()
         .min_w_0()
@@ -79,10 +79,12 @@ impl Workspace {
 
   fn render_tabs(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
     let theme = cx.theme().clone();
+    let indices = self.active_tab_indices();
     self
       .tabs
       .iter()
       .enumerate()
+      .filter(|(index, _)| indices.contains(index))
       .map(|(index, tab)| {
         let active = index == self.active;
         let title = self.panes.get(&tab.focused).map(|pane| pane.title.clone()).unwrap_or_default();

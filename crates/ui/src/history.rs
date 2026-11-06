@@ -80,9 +80,10 @@ impl Workspace {
           .into_any_element()
       })
       .collect();
-    let commands: Vec<_> = active
-      .into_iter()
-      .flat_map(|tab| tab.history.entries().iter().rev())
+    let history = active.map(|tab| tab.history.borrow().entries().to_vec()).unwrap_or_default();
+    let commands: Vec<_> = history
+      .iter()
+      .rev()
       .enumerate()
       .map(|(index, command)| {
         let text = command.clone();
@@ -125,7 +126,7 @@ impl Workspace {
             IconName::Plus,
             "New session",
             cx.listener(|this, _, window, cx| {
-              this.new_tab(cx);
+              this.new_session(cx);
               this.focus_handle.focus(window, cx);
               cx.notify();
             }),

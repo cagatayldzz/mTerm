@@ -43,8 +43,11 @@ shell directory, recorded commands and split layout under `sessions/<id>/` in
 the data directory. The sidebar lists saved sessions and can create or reopen
 them. Its context menu pins sessions above unpinned ones or deletes the saved
 session after confirmation; deletion closes its live panes, but leaves files in
-its working directory untouched. A live session occupies a tab, which is a binary tree of panes plus the
-focused pane. Switching tabs keeps their running processes and screens alive.
+its working directory untouched. A live session can have multiple tabs, each a
+binary tree of panes plus the focused pane. Only the selected session's tabs are
+shown; switching sessions or tabs keeps their running processes and screens alive.
+Tabs in a session share its command history. The last saved split layout is
+restored when the session is reopened; extra tabs are not persisted.
 On restart, selecting a session starts fresh shells in its saved directory;
 processes and terminal output cannot be restored. A missing directory falls back
 to the user's home directory. The last selected session opens on launch. The

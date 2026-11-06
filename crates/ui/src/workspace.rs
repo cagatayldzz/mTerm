@@ -16,7 +16,7 @@ use gpui_kit::{
 };
 use mterm_storage::{History, SavedSession, ThemeChoice};
 use mterm_terminal::{encode_key, paste_bytes, Modifiers, Palette, Session, SessionEvent, SessionOptions};
-use std::{collections::HashMap, path::PathBuf, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc};
 
 /// Height of the top band: the traffic lights, the toggle and the title or tabs.
 pub const TOOLBAR_HEIGHT: Pixels = px(44.);
@@ -44,13 +44,14 @@ pub(crate) struct Tab {
   pub root: Node,
   pub focused: PaneId,
   pub saved: SavedSession,
-  pub(crate) history: History,
+  pub(crate) history: Rc<RefCell<History>>,
 }
 
 pub struct Workspace {
   pub(crate) panes: HashMap<PaneId, Pane>,
   pub(crate) tabs: Vec<Tab>,
   pub(crate) active: usize,
+  session_tabs: HashMap<String, PaneId>,
   next_pane: PaneId,
   directory: Option<PathBuf>,
   events: futures::channel::mpsc::UnboundedSender<(PaneId, SessionEvent)>,
@@ -122,6 +123,7 @@ impl Workspace {
       tabs: Vec::new(),
       active: 0,
       next_pane: 0,
+      session_tabs: HashMap::new(),
       directory,
       events,
       error: None,
@@ -135,7 +137,7 @@ impl Workspace {
       _subscriptions: subscriptions,
     };
     if workspace.directory.is_some() || workspace.saved_sessions.is_empty() || cx.windows().len() > 1 {
-      workspace.new_tab(cx);
+      workspace.new_session(cx);
     } else {
       let last = SavedSession::last_selected(&SavedSession::directory_path());
       let saved =
@@ -202,14 +204,18 @@ impl Workspace {
           }
         }
         SessionEvent::Directory(directory) => {
-          if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.root.leaves().contains(&id)) {
+          if let Some(tab) = self.tabs.iter().find(|tab| tab.root.leaves().contains(&id)) {
             if tab.focused == id && tab.saved.directory != directory {
-              tab.saved.directory = directory;
-              if let Err(error) = tab.saved.save(&SavedSession::directory_path()) {
+              let mut updated = tab.saved.clone();
+              updated.directory = directory;
+              if let Err(error) = updated.save(&SavedSession::directory_path()) {
                 eprintln!("Could not save the session directory: {error}");
               }
-              if let Some(saved) = self.saved_sessions.iter_mut().find(|saved| saved.id == tab.saved.id) {
-                *saved = tab.saved.clone();
+              if let Some(saved) = self.saved_sessions.iter_mut().find(|saved| saved.id == updated.id) {
+                *saved = updated.clone();
+              }
+              for tab in self.tabs.iter_mut().filter(|tab| tab.saved.id == updated.id) {
+                tab.saved = updated.clone();
               }
             }
           }
@@ -248,7 +254,7 @@ impl Workspace {
     }
   }
 
-  pub(crate) fn new_tab(&mut self, cx: &App) {
+  pub(crate) fn new_session(&mut self, cx: &App) {
     let migrate_legacy = !SavedSession::directory_path().exists();
     let directory = self.directory.clone().or_else(|| std::env::var_os("HOME").map(Into::into)).unwrap_or_default();
     let saved = SavedSession::new(format!("Session {}", self.saved_sessions.len() + 1), directory);
@@ -275,7 +281,16 @@ impl Workspace {
   }
 
   fn open_session(&mut self, saved: SavedSession, cx: &App) {
-    if let Some(index) = self.tabs.iter().position(|tab| tab.saved.id == saved.id) {
+    if let Some(tab) = self.tabs.get(self.active) {
+      self.session_tabs.insert(tab.saved.id.clone(), tab.focused);
+    }
+    let preferred = self.session_tabs.get(&saved.id);
+    if let Some(index) = self
+      .tabs
+      .iter()
+      .position(|tab| tab.saved.id == saved.id && Some(&tab.focused) == preferred)
+      .or_else(|| self.tabs.iter().position(|tab| tab.saved.id == saved.id))
+    {
       self.active = index;
       if let Err(error) = saved.remember_selected(&SavedSession::directory_path()) {
         eprintln!("Could not save the selected session: {error}");
@@ -284,7 +299,7 @@ impl Workspace {
     }
     let directory = saved.directory.is_dir().then(|| saved.directory.clone());
     if let Some(id) = self.spawn_pane(directory.clone(), cx) {
-      let history = saved.history(&SavedSession::directory_path());
+      let history = Rc::new(RefCell::new(saved.history(&SavedSession::directory_path())));
       let mut root = Node::Leaf(id);
       if let Some(layout) = saved.load_layout(&SavedSession::directory_path()).and_then(|text| Node::decode(&text)) {
         let mut ids = vec![id];
@@ -308,6 +323,17 @@ impl Workspace {
     }
   }
 
+  pub(crate) fn new_tab(&mut self, cx: &App) {
+    let Some(tab) = self.tabs.get(self.active) else { return };
+    let saved = tab.saved.clone();
+    let history = tab.history.clone();
+    let directory = saved.directory.is_dir().then(|| saved.directory.clone());
+    if let Some(id) = self.spawn_pane(directory, cx) {
+      self.tabs.push(Tab { root: Node::Leaf(id), focused: id, saved, history });
+      self.active = self.tabs.len() - 1;
+    }
+  }
+
   pub(crate) fn select_session(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
     if let Some(saved) = self.saved_sessions.iter().find(|session| session.id == id).cloned() {
       self.open_session(saved, cx);
@@ -326,6 +352,7 @@ impl Workspace {
         return;
       }
     };
+    let active_pane = self.tabs.get(self.active).map(|tab| tab.focused);
     let active_id = self.tabs.get(self.active).map(|tab| tab.saved.id.clone());
     let removed: Vec<_> =
       self.tabs.iter().filter(|tab| !saved.iter().any(|item| item.id == tab.saved.id)).flat_map(|tab| tab.root.leaves()).collect();
@@ -335,13 +362,19 @@ impl Workspace {
     self.tabs.retain(|tab| saved.iter().any(|item| item.id == tab.saved.id));
     for tab in &mut self.tabs {
       if let Some(item) = saved.iter().find(|item| item.id == tab.saved.id) {
-        tab.saved.pinned = item.pinned;
+        tab.saved = item.clone();
       }
     }
     self.saved_sessions = saved;
     let active_removed = active_id.as_ref().is_some_and(|id| !self.tabs.iter().any(|tab| &tab.saved.id == id));
     self.active = active_id
-      .and_then(|id| self.tabs.iter().position(|tab| tab.saved.id == id))
+      .and_then(|id| {
+        self
+          .tabs
+          .iter()
+          .position(|tab| tab.saved.id == id && Some(tab.focused) == active_pane)
+          .or_else(|| self.tabs.iter().position(|tab| tab.saved.id == id))
+      })
       .unwrap_or_else(|| self.active.min(self.tabs.len().saturating_sub(1)));
     if active_removed {
       if let Some(tab) = self.tabs.get(self.active) {
@@ -354,7 +387,7 @@ impl Workspace {
       if let Some(saved) = self.saved_sessions.first().cloned() {
         self.open_session(saved, cx);
       } else {
-        self.new_tab(cx);
+        self.new_session(cx);
       }
     }
   }
@@ -428,8 +461,11 @@ impl Workspace {
           eprintln!("Could not save pane layout: {error}");
         }
         self.tabs.insert(index, Tab { root, focused, saved: tab.saved, history: tab.history });
-      } else if self.active >= index {
-        self.active = self.active.saturating_sub(1);
+      } else if self.active == index {
+        self.active =
+          self.tabs.iter().position(|other| other.saved.id == tab.saved.id).unwrap_or_else(|| index.min(self.tabs.len().saturating_sub(1)));
+      } else if self.active > index {
+        self.active -= 1;
       }
     }
     self.active = self.active.min(self.tabs.len().saturating_sub(1));
@@ -471,10 +507,15 @@ impl Workspace {
   }
 
   fn step_tab(&mut self, step: isize, window: &mut Window, cx: &mut Context<Self>) {
-    let count = self.tabs.len() as isize;
-    if count > 0 {
-      self.select_tab((self.active as isize + step).rem_euclid(count) as usize, window, cx);
+    let indices = self.active_tab_indices();
+    if let Some(current) = indices.iter().position(|index| *index == self.active) {
+      self.select_tab(indices[(current as isize + step).rem_euclid(indices.len() as isize) as usize], window, cx);
     }
+  }
+
+  pub(crate) fn active_tab_indices(&self) -> Vec<usize> {
+    let Some(active) = self.tabs.get(self.active) else { return Vec::new() };
+    self.tabs.iter().enumerate().filter_map(|(index, tab)| (tab.saved.id == active.saved.id).then_some(index)).collect()
   }
 
   pub(crate) fn focused_pane_id(&self) -> Option<PaneId> {
@@ -534,8 +575,9 @@ impl Workspace {
         let line = std::mem::take(&mut pane.line);
         if !pane.line_unreliable && !line.trim().is_empty() {
           if let Some(tab) = self.tabs.get_mut(self.active) {
-            if tab.history.push(&line) {
-              if let Err(error) = tab.history.save(&tab.saved.history_path(&SavedSession::directory_path())) {
+            let mut history = tab.history.borrow_mut();
+            if history.push(&line) {
+              if let Err(error) = history.save(&tab.saved.history_path(&SavedSession::directory_path())) {
                 eprintln!("Could not save the session history: {error}");
               }
             }
@@ -581,7 +623,7 @@ impl Workspace {
   /// Clears only the active session's recorded commands after confirmation.
   pub(crate) fn confirm_clear_history(&mut self, window: &mut Window, cx: &mut Context<Self>) {
     let Some(tab) = self.tabs.get(self.active) else { return };
-    if tab.history.entries().is_empty() {
+    if tab.history.borrow().entries().is_empty() {
       return;
     }
     let id = tab.saved.id.clone();
@@ -596,8 +638,9 @@ impl Workspace {
       if answer.await == Ok(1) {
         let _ = this.update(cx, |this, cx| {
           if let Some(tab) = this.tabs.iter_mut().find(|tab| tab.saved.id == id) {
-            tab.history.clear();
-            if let Err(error) = tab.history.save(&tab.saved.history_path(&SavedSession::directory_path())) {
+            let mut history = tab.history.borrow_mut();
+            history.clear();
+            if let Err(error) = history.save(&tab.saved.history_path(&SavedSession::directory_path())) {
               eprintln!("Could not clear the session history: {error}");
             }
           }
