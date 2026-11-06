@@ -1,6 +1,10 @@
-use crate::workspace::{Workspace, SIDEBAR_WIDTH, TOOLBAR_HEIGHT};
+use crate::{
+  history::sidebar_toggle,
+  workspace::{Workspace, SIDEBAR_WIDTH, TOOLBAR_HEIGHT},
+};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-  component::{v_flex, ActiveTheme},
+  component::{v_flex, ActiveTheme, IconName},
   *,
 };
 use mterm_terminal::{Rgb, Snapshot};
@@ -40,6 +44,7 @@ impl Workspace {
 
     v_flex()
       .id("terminal")
+      .relative()
       .flex_1()
       .min_w_0()
       .h_full()
@@ -61,6 +66,10 @@ impl Workspace {
         }
       }))
       .child(content)
+      // With the sidebar closed, the toggle floats in the corner of the page.
+      .when(!self.sidebar_open, |this| {
+        this.child(div().absolute().top(px(6.)).right(px(8.)).child(sidebar_toggle(IconName::PanelLeftOpen, "Show history (⌘B)")))
+      })
       .border_color(cx.theme().border)
   }
 }

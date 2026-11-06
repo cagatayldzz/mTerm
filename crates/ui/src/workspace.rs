@@ -2,10 +2,7 @@ use crate::{ClearHistory, ClearScreen, Paste, ToggleSidebar};
 use futures::StreamExt as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-  component::{
-    button::{Button, ButtonVariants},
-    h_flex, v_flex, ActiveTheme, IconName, Sizable, Theme, TitleBar,
-  },
+  component::{h_flex, v_flex, ActiveTheme, Theme, TitleBar},
   *,
 };
 use mterm_storage::History;
@@ -192,37 +189,20 @@ impl Workspace {
 
   fn toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
     let theme = cx.theme().clone();
-    let icon = if self.sidebar_open { IconName::PanelLeftClose } else { IconName::PanelLeftOpen };
     TitleBar::new().h(TOOLBAR_HEIGHT).bg(theme.background).child(
-      h_flex()
-        .w_full()
-        .h_full()
-        .items_center()
-        .pr_3()
-        .gap_2()
-        .child(
-          Button::new("toggle-sidebar")
-            .ghost()
-            .small()
-            .icon(icon)
-            .tooltip("Toggle history (⌘B)")
-            .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleSidebar), cx)),
-        )
-        .child(
-          div()
-            .flex_1()
-            .min_w_0()
-            .overflow_hidden()
-            .whitespace_nowrap()
-            .text_ellipsis()
-            .text_center()
-            .text_size(px(13.))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(theme.foreground.opacity(0.7))
-            .child(self.title.clone()),
-        )
-        // Balances the toggle button so the title stays centered.
-        .child(div().w(px(28.))),
+      h_flex().w_full().h_full().items_center().px_3().child(
+        div()
+          .flex_1()
+          .min_w_0()
+          .overflow_hidden()
+          .whitespace_nowrap()
+          .text_ellipsis()
+          .text_center()
+          .text_size(px(13.))
+          .font_weight(FontWeight::SEMIBOLD)
+          .text_color(theme.foreground.opacity(0.7))
+          .child(self.title.clone()),
+      ),
     )
   }
 }

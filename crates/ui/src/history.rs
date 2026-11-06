@@ -1,4 +1,7 @@
-use crate::workspace::{Workspace, SIDEBAR_WIDTH};
+use crate::{
+  workspace::{Workspace, SIDEBAR_WIDTH},
+  ToggleSidebar,
+};
 use gpui_kit::{
   component::{
     button::{Button, ButtonVariants},
@@ -55,7 +58,13 @@ impl Workspace {
           .px_3()
           .items_center()
           .justify_between()
-          .child(div().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("HISTORY"))
+          .child(
+            h_flex()
+              .gap_2()
+              .items_center()
+              .child(sidebar_toggle(IconName::PanelLeftClose, "Hide history (⌘B)"))
+              .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.foreground).child("History")),
+          )
           .child(
             Button::new("clear-history")
               .ghost()
@@ -71,4 +80,14 @@ impl Workspace {
         v_flex().id("history-list").flex_1().min_h_0().px_2().pb_2().gap(px(1.)).overflow_y_scroll().children(items).into_any_element()
       })
   }
+}
+
+/// The sidebar toggle. It sits in the sidebar header when open and in the page when closed.
+pub(crate) fn sidebar_toggle(icon: IconName, tooltip: &'static str) -> impl IntoElement {
+  Button::new("toggle-sidebar")
+    .ghost()
+    .small()
+    .icon(icon)
+    .tooltip(tooltip)
+    .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleSidebar), cx))
 }

@@ -50,7 +50,11 @@ make_icon() {
   work="$(mktemp -d)"
   iconset="$work/AppIcon.iconset"
   mkdir "$iconset"
-  qlmanage -t -s 1024 -o "$work" "$resources/icon.svg" >/dev/null 2>&1
+  # Headless Chrome keeps the transparent corners (Quick Look flattens them to white).
+  local chrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  [[ -x "$chrome" ]] || fail "Google Chrome is required to render icon.svg."
+  "$chrome" --headless=new --disable-gpu --hide-scrollbars --default-background-color=00000000 \
+    --window-size=1024,1024 --screenshot="$work/icon.svg.png" "file://$resources/icon.svg" >/dev/null 2>&1
   for size in 16 32 128 256 512; do
     sips -z "$size" "$size" "$work/icon.svg.png" --out "$iconset/icon_${size}x${size}.png" >/dev/null
     sips -z "$((size * 2))" "$((size * 2))" "$work/icon.svg.png" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
