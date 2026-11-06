@@ -61,8 +61,14 @@ make_icon() {
     sips -z "$((size * 2))" "$((size * 2))" "$work/icon.svg.png" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
   done
   iconutil -c icns "$iconset" -o "$resources/AppIcon.icns"
+  swift "$project_dir/scripts/dev-icon.swift" "$resources/AppIcon.icns" "$work/dev.png"
+  for size in 16 32 128 256 512; do
+    sips -z "$size" "$size" "$work/dev.png" --out "$iconset/icon_${size}x${size}.png" >/dev/null
+    sips -z "$((size * 2))" "$((size * 2))" "$work/dev.png" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
+  done
+  iconutil -c icns "$iconset" -o "$resources/DevIcon.icns"
   rm -rf "$work"
-  echo "Ready: $resources/AppIcon.icns"
+  echo "Ready: $resources/AppIcon.icns and $resources/DevIcon.icns"
 }
 
 # Build the binary, wrap it in dist/mTerm.app and sign it.
@@ -80,7 +86,13 @@ bundle() {
   mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
   cp "$project_dir/target/$configuration/mTerm" "$app_dir/Contents/MacOS/mTerm"
   cp "$resources/Info.plist" "$app_dir/Contents/Info.plist"
-  cp "$resources/AppIcon.icns" "$app_dir/Contents/Resources/AppIcon.icns"
+  if [[ "$configuration" == debug ]]; then
+    cp "$resources/DevIcon.icns" "$app_dir/Contents/Resources/DevIcon.icns"
+    /usr/libexec/PlistBuddy -c 'Set :CFBundleIconFile DevIcon' "$app_dir/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier com.cagatayldzz.mterm.dev' "$app_dir/Contents/Info.plist"
+  else
+    cp "$resources/AppIcon.icns" "$app_dir/Contents/Resources/AppIcon.icns"
+  fi
 }
 
 # Local development signature. Distribution requires Developer ID + notarization.

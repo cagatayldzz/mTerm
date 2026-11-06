@@ -13,7 +13,7 @@ fn preferences_have_sensible_defaults() {
 fn preferences_round_trip() {
   let dir = std::env::temp_dir().join(format!("mterm-prefs-{}", std::process::id()));
   let path = dir.join("preferences.txt");
-  let saved = Preferences { sidebar_open: false, check_updates: false, theme: ThemeChoice::Dark };
+  let saved = Preferences { sidebar_open: false, check_updates: false, theme: ThemeChoice::Slate };
   saved.save(&path).unwrap();
   assert_eq!(Preferences::load(&path), saved);
   std::fs::remove_dir_all(dir).unwrap();

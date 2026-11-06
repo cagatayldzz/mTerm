@@ -12,10 +12,11 @@ pub enum ThemeChoice {
   System,
   Light,
   Dark,
+  Slate,
 }
 
 impl ThemeChoice {
-  pub const ALL: [Self; 3] = [Self::System, Self::Light, Self::Dark];
+  pub const ALL: [Self; 4] = [Self::System, Self::Light, Self::Dark, Self::Slate];
 
   /// The stored code.
   pub fn code(self) -> &'static str {
@@ -23,6 +24,7 @@ impl ThemeChoice {
       Self::System => "system",
       Self::Light => "light",
       Self::Dark => "dark",
+      Self::Slate => "slate",
     }
   }
 
@@ -31,6 +33,7 @@ impl ThemeChoice {
     match code.trim() {
       "light" => Self::Light,
       "dark" => Self::Dark,
+      "slate" => Self::Slate,
       _ => Self::System,
     }
   }

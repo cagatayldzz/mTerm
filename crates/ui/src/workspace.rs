@@ -443,7 +443,14 @@ impl Workspace {
   }
 
   pub(crate) fn palette(cx: &App) -> Palette {
-    if cx.theme().is_dark() {
+    if cx.global::<AppGlobal>().0.read(cx).theme() == ThemeChoice::Slate {
+      let mut palette = Palette::dark();
+      palette.background = mterm_terminal::Rgb::new(0x1e, 0x24, 0x28);
+      palette.foreground = mterm_terminal::Rgb::new(0xe4, 0xe8, 0xed);
+      palette.ansi[0] = palette.background;
+      palette.ansi[7] = palette.foreground;
+      palette
+    } else if cx.theme().is_dark() {
       Palette::dark()
     } else {
       Palette::light()

@@ -55,7 +55,7 @@ a window opens; terminal output and shell state are not restored.
 observe it, so a theme change or a new release reaches all of them. Settings (`⌘,`, or
 the gear in the top bar) open a panel over the terminal to edit them; `Esc` closes it.
 
-Updates follow TendKit: the updater asks the GitHub releases API for the latest release,
+For updates, the updater asks the GitHub releases API for the latest release,
 downloads `mTerm-<tag>-macos-arm64.zip` only when asked, and verifies it against
 `SHA256SUMS.txt`, the code signature, Gatekeeper and the signing team before a helper
 script swaps the `.app` bundle and reopens it. A failed swap restores the old app.

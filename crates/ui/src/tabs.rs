@@ -56,12 +56,25 @@ impl Workspace {
       .bg(background)
       .border_b_1()
       .border_color(band_line(&theme))
-      .child(h_flex().w_full().h_full().items_center().gap_2().child(sidebar_toggle(icon, tooltip)).child(middle).child(icon_button(
-        "open-settings",
-        IconName::Settings,
-        "Settings (⌘,)",
-        |_, window, cx| window.dispatch_action(Box::new(OpenSettings), cx),
-      )))
+      .child(
+        h_flex()
+          .id("title-bar-content")
+          .w_full()
+          .h_full()
+          .on_mouse_down(MouseButton::Left, |event: &MouseDownEvent, window, cx| {
+            if event.click_count == 2 {
+              window.zoom_window();
+              cx.stop_propagation();
+            }
+          })
+          .items_center()
+          .gap_2()
+          .child(sidebar_toggle(icon, tooltip))
+          .child(middle)
+          .child(icon_button("open-settings", IconName::Settings, "Settings (⌘,)", |_, window, cx| {
+            window.dispatch_action(Box::new(OpenSettings), cx)
+          })),
+      )
   }
 
   fn render_tabs(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {

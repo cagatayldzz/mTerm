@@ -98,7 +98,7 @@ fn open_window(directory: Option<PathBuf>, cx: &mut App) {
   let options = WindowOptions {
     window_bounds: Some(WindowBounds::Windowed(bounds)),
     window_min_size: Some(gpui_kit::size(px(WindowSize::MIN.width), px(WindowSize::MIN.height))),
-    app_id: Some("com.cagatayldzz.mterm".into()),
+    app_id: Some(if cfg!(debug_assertions) { "com.cagatayldzz.mterm.dev" } else { "com.cagatayldzz.mterm" }.into()),
     // Center the traffic lights in the toolbar.
     titlebar: Some(TitlebarOptions { traffic_light_position: Some(point(px(18.), TOOLBAR_HEIGHT / 2. - px(6.))), ..TitleBar::title_bar_options() }),
     ..TitleBar::window_options()
@@ -161,6 +161,12 @@ fn bind_keys(cx: &mut App) {
     }
   });
   set_menus(cx);
+  cx.set_dock_menu(vec![
+    MenuItem::action("New Window", NewWindow),
+    MenuItem::action("New Tab", NewTab),
+    MenuItem::separator(),
+    MenuItem::action("Settings…", OpenSettings),
+  ]);
 }
 
 fn set_menus(cx: &mut App) {

@@ -54,7 +54,7 @@ pub(crate) fn render_settings(model: &Entity<AppModel>, page: SettingsPage, epoc
           },
         ),
       )
-      .description("Choose light or dark, or follow your computer's appearance."),
+      .description("Choose a theme or follow your computer's appearance."),
     ),
   );
 
@@ -102,6 +102,7 @@ fn theme_options() -> Vec<(SharedString, SharedString)> {
         ThemeChoice::System => "System default",
         ThemeChoice::Light => "Light",
         ThemeChoice::Dark => "Dark",
+        ThemeChoice::Slate => "Slate",
       };
       (choice.code().into(), label.into())
     })
