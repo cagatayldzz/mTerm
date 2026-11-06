@@ -44,6 +44,9 @@ Panes report events over one channel tagged with their id; a shell that exits cl
 its pane, the last pane closes the tab, and the last tab closes the window. Each pane
 fits its PTY to the space layout gives it (a `canvas` measures it during paint).
 New windows are opened by the app (`⌘N` / the context menu's `NewWindow` action).
+Split dividers can be dragged to resize panes. The most recently changed split layout
+and its ratios are stored in `layout.txt` and restored with fresh shell sessions when
+a window opens; terminal output and shell state are not restored.
 
 ## Settings and updates
 

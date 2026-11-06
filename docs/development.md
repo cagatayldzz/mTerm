@@ -50,4 +50,4 @@ use temporary directories; `MTERM_DATA_DIR` overrides the location.
 
 ## Local data
 
-`~/Library/Application Support/mTerm/` holds `window-size.txt`, `history.txt` and `preferences.txt`.
+`~/Library/Application Support/mTerm/` holds `window-size.txt`, `history.txt`, `preferences.txt` and `layout.txt`.

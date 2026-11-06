@@ -102,11 +102,11 @@ export function renderNotes({ items, commits, repository, tag, previousTag }) {
   const base = `https://github.com/${repository}`;
   const lines = [];
   for (const section of sections) {
-    lines.push(`## ${section}`, "");
     const entries = items.filter((item) => item.section === section);
-    lines.push(...(entries.length ? entries.map((item) =>
-      `- ${plain(item.summary)} ([${commits[item.id].sha.slice(0, 7)}](${base}/commit/${commits[item.id].sha}))`)
-      : ["- No changes."]), "");
+    if (!entries.length) continue;
+    lines.push(`## ${section}`, "");
+    lines.push(...entries.map((item) =>
+      `- ${plain(item.summary)} ([${commits[item.id].sha.slice(0, 7)}](${base}/commit/${commits[item.id].sha}))`), "");
   }
   lines.push("## Changelog", "");
   if (previousTag) {

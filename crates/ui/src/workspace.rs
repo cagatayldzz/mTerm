@@ -133,6 +133,21 @@ impl Workspace {
       _subscriptions: subscriptions,
     };
     workspace.new_tab();
+    if let Some(layout) = mterm_storage::SavedLayout::load().and_then(|text| Node::decode(&text)) {
+      let count = layout.leaves().len();
+      let mut ids = workspace.tabs.first().map(|tab| vec![tab.focused]).unwrap_or_default();
+      while ids.len() < count {
+        let Some(id) = workspace.spawn_pane() else { break };
+        ids.push(id);
+      }
+      if ids.len() == count {
+        let mut ids = ids.into_iter();
+        let root = layout.map_leaves(&mut ids);
+        if let Some(tab) = workspace.tabs.first_mut() {
+          tab.root = root;
+        }
+      }
+    }
     workspace
   }
 
@@ -224,8 +239,17 @@ impl Workspace {
       let tab = &mut self.tabs[self.active];
       if tab.root.split(focused, id, split) {
         tab.focused = id;
+        self.save_layout();
       } else {
         self.panes.remove(&id);
+      }
+    }
+  }
+
+  pub(crate) fn save_layout(&self) {
+    if let Some(tab) = self.tabs.get(self.active) {
+      if let Err(error) = mterm_storage::SavedLayout::save(&tab.root.encode()) {
+        eprintln!("Could not save pane layout: {error}");
       }
     }
   }
@@ -245,6 +269,9 @@ impl Workspace {
       }
     }
     self.active = self.active.min(self.tabs.len().saturating_sub(1));
+    if !self.tabs.is_empty() {
+      self.save_layout();
+    }
     if self.tabs.is_empty() {
       window.remove_window();
     }

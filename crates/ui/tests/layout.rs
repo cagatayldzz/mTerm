@@ -27,3 +27,17 @@ fn removing_an_unknown_pane_changes_nothing() {
   root.split(1, 2, Split::Vertically);
   assert_eq!(root.clone().remove(9), Some(root));
 }
+
+#[test]
+fn split_ratios_round_trip_and_follow_nested_paths() {
+  let mut root = Node::Leaf(0);
+  root.split(0, 1, Split::Vertically);
+  root.split(1, 2, Split::Horizontally);
+  assert!(root.set_ratio(&[], 6200));
+  assert!(root.set_ratio(&[true], 3500));
+  assert!(!root.set_ratio(&[false], 5000));
+  let restored = Node::decode(&root.encode()).unwrap();
+  assert_eq!(restored, root);
+  assert!(Node::decode("V99999(L,L)").is_none());
+  assert!(Node::decode("V5000(L,L)junk").is_none());
+}

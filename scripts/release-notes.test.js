@@ -38,11 +38,14 @@ test("AI notes cannot omit or duplicate commits or invent references", () => {
   expect(() => validateItems([{ ...items[0], summary: "Title\n## Injected" }], 1)).toThrow();
 });
 
-test("notes contain every section, source links and a complete changelog", () => {
+test("notes omit empty sections and include source links and a complete changelog", () => {
   const markdown = renderNotes({ items, commits, repository: "owner/repo", tag: "v0.3.0", previousTag: "v0.2.0" });
-  for (const section of ["New Features", "Bug Fixes", "Documentation", "Chores", "Changelog"]) {
+  for (const section of ["New Features", "Bug Fixes", "Changelog"]) {
     expect(markdown).toContain(`## ${section}\n`);
   }
+  expect(markdown).not.toContain("## Documentation");
+  expect(markdown).not.toContain("## Chores");
+  expect(markdown).not.toContain("No changes.");
   expect(markdown).toContain("https://github.com/owner/repo/compare/v0.2.0...v0.3.0");
   for (const commit of commits) expect(markdown).toContain(`/commit/${commit.sha}`);
   expect(renderNotes({ items, commits, repository: "owner/repo", tag: "v0.3.0", previousTag: null }))

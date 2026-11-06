@@ -17,6 +17,25 @@ const PADDING: Pixels = px(12.);
 /// How dark the veil over an unfocused split pane is.
 const PANE_VEIL: f32 = 0.18;
 
+#[derive(Clone)]
+struct DividerDrag {
+  path: Vec<bool>,
+  split: Split,
+  area: Bounds<Pixels>,
+  sidebar: Pixels,
+}
+
+impl Render for DividerDrag {
+  fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    Empty
+  }
+}
+
+struct Divider {
+  bounds: Bounds<Pixels>,
+  drag: DividerDrag,
+}
+
 fn color(rgb: Rgb) -> Hsla {
   gpui_kit::rgb(rgb.hex()).into()
 }
@@ -48,7 +67,7 @@ impl Workspace {
     let area = Bounds::new(point(px(0.), px(0.)), size(viewport.width - sidebar, viewport.height - TOOLBAR_HEIGHT));
     let mut panes = Vec::new();
     let mut dividers = Vec::new();
-    place(&root, area, &mut panes, &mut dividers);
+    place(&root, area, &mut panes, &mut dividers, &mut Vec::new(), sidebar);
     let border = cx.theme().border;
     let panes: Vec<_> = panes.into_iter().map(|(id, bounds)| self.render_pane(id, bounds, id == focused, split, &metrics, cx)).collect();
     div()
@@ -56,11 +75,44 @@ impl Workspace {
       .min_h_0()
       .relative()
       .children(panes)
-      .children(
-        dividers
-          .into_iter()
-          .map(move |bounds| div().absolute().left(bounds.origin.x).top(bounds.origin.y).w(bounds.size.width).h(bounds.size.height).bg(border)),
-      )
+      .on_drag_move(cx.listener(|this, event: &DragMoveEvent<DividerDrag>, _, cx| {
+        let drag = event.drag(cx);
+        let (position, origin, extent) = match drag.split {
+          Split::Vertically => (event.event.position.x - drag.sidebar, drag.area.origin.x, drag.area.size.width),
+          Split::Horizontally => (event.event.position.y - TOOLBAR_HEIGHT, drag.area.origin.y, drag.area.size.height),
+        };
+        let fraction = f32::from(position - origin) / f32::from(extent - px(1.));
+        let ratio = (fraction.clamp(0.1, 0.9) * 10000.) as u16;
+        if let Some(tab) = this.tabs.get_mut(this.active) {
+          if tab.root.set_ratio(&drag.path, ratio) {
+            this.save_layout();
+            cx.notify();
+          }
+        }
+      }))
+      .children(dividers.into_iter().enumerate().map(move |(index, divider)| {
+        let bounds = divider.bounds;
+        let vertical = divider.drag.split == Split::Vertically;
+        div()
+          .id(("divider", index))
+          .absolute()
+          .left(bounds.origin.x - if vertical { px(4.) } else { px(0.) })
+          .top(bounds.origin.y - if vertical { px(0.) } else { px(4.) })
+          .w(bounds.size.width + if vertical { px(8.) } else { px(0.) })
+          .h(bounds.size.height + if vertical { px(0.) } else { px(8.) })
+          .when(vertical, |this| this.cursor_col_resize())
+          .when(!vertical, |this| this.cursor_row_resize())
+          .on_drag(divider.drag, |drag, _, _, cx| cx.new(|_| drag.clone()))
+          .child(
+            div()
+              .absolute()
+              .left(if vertical { px(4.) } else { px(0.) })
+              .top(if vertical { px(0.) } else { px(4.) })
+              .w(bounds.size.width)
+              .h(bounds.size.height)
+              .bg(border),
+          )
+      }))
       .into_any_element()
   }
 
@@ -143,30 +195,41 @@ impl Workspace {
 }
 
 /// Divides `area` among the panes of `node`, with a one pixel divider between halves.
-fn place(node: &Node, area: Bounds<Pixels>, panes: &mut Vec<(PaneId, Bounds<Pixels>)>, dividers: &mut Vec<Bounds<Pixels>>) {
+fn place(
+  node: &Node,
+  area: Bounds<Pixels>,
+  panes: &mut Vec<(PaneId, Bounds<Pixels>)>,
+  dividers: &mut Vec<Divider>,
+  path: &mut Vec<bool>,
+  sidebar: Pixels,
+) {
   match node {
     Node::Leaf(id) => panes.push((*id, area)),
-    Node::Split { split, first, second } => {
+    Node::Split { split, ratio, first, second } => {
       let line = px(1.);
       let (origin, extent) = (area.origin, area.size);
       let (first_area, divider, second_area) = if *split == Split::Vertically {
-        let width = ((extent.width - line) / 2.).floor();
+        let width = ((extent.width - line) * (f32::from(*ratio) / 10000.)).floor();
         (
           Bounds::new(origin, size(width, extent.height)),
           Bounds::new(point(origin.x + width, origin.y), size(line, extent.height)),
           Bounds::new(point(origin.x + width + line, origin.y), size(extent.width - width - line, extent.height)),
         )
       } else {
-        let height = ((extent.height - line) / 2.).floor();
+        let height = ((extent.height - line) * (f32::from(*ratio) / 10000.)).floor();
         (
           Bounds::new(origin, size(extent.width, height)),
           Bounds::new(point(origin.x, origin.y + height), size(extent.width, line)),
           Bounds::new(point(origin.x, origin.y + height + line), size(extent.width, extent.height - height - line)),
         )
       };
-      dividers.push(divider);
-      place(first, first_area, panes, dividers);
-      place(second, second_area, panes, dividers);
+      dividers.push(Divider { bounds: divider, drag: DividerDrag { path: path.clone(), split: *split, area, sidebar } });
+      path.push(false);
+      place(first, first_area, panes, dividers, path, sidebar);
+      path.pop();
+      path.push(true);
+      place(second, second_area, panes, dividers, path, sidebar);
+      path.pop();
     }
   }
 }

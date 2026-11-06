@@ -1,3 +1,5 @@
+<img src="apps/mterm/macos/icon.svg" alt="mTerm app icon" width="112">
+
 # mTerm
 
 A minimal native terminal for macOS, built with Rust and [GPUI](https://gpui.rs).
