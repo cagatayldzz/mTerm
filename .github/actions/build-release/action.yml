@@ -1,0 +1,43 @@
+name: Build native release
+description: Build, sign, notarize, and package the macOS application.
+inputs:
+  arch:
+    description: Target processor architecture.
+    required: true
+  release-tag:
+    description: Prepared release tag.
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@v8
+      with:
+        name: release-inputs
+        path: .
+    - uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: 1.4.4
+    - name: Install stable Rust
+      shell: bash
+      run: |
+        rustup toolchain install stable --profile minimal
+        rustup default stable
+    - uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: release-macos-${{ inputs.arch }}
+    - name: Build macOS application
+      shell: bash
+      run: bun run build
+    - name: Sign and notarize macOS application
+      shell: bash
+      run: bash scripts/notarize-app.sh
+    - name: Package the application
+      env:
+        RELEASE_TAG: ${{ inputs.release-tag }}
+      shell: bash
+      run: bun scripts/package-release.js package
+    - uses: actions/upload-artifact@v7
+      with:
+        name: release-macos-${{ inputs.arch }}
+        if-no-files-found: error
+        path: dist/mTerm-*.zip

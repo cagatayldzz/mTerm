@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Every push runs lightweight checks on Ubuntu only.
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: rustup default stable
+      - name: Test release automation
+        run: bun test scripts
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+  # The terminal and storage crates are plain Rust and build on Linux in seconds,
+  # without waiting for a macOS runner. The GPUI crates are checked by the release workflow.
+  core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - run: rustup default stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: core
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Lint
+        run: cargo clippy --locked -p mterm-terminal -p mterm-storage --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --locked -p mterm-terminal -p mterm-storage

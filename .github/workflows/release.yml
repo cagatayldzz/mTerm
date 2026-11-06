@@ -1,0 +1,201 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: 1 · Validate
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate release requirements
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          for variable in OPENAI_API_KEY APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD; do
+            test -n "${!variable}" || { echo "Add the $variable Actions secret." >&2; exit 1; }
+          done
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: rustup default stable
+      - name: Check scripts and formatting
+        run: |
+          bun test scripts
+          cargo fmt --all -- --check
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: core
+      - name: Lint core packages
+        run: cargo clippy --locked -p mterm-terminal -p mterm-storage --all-targets -- -D warnings
+      - name: Test core packages
+        run: cargo test --locked -p mterm-terminal -p mterm-storage
+
+  prepare:
+    name: 2 · Prepare version
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      sha: ${{ steps.version.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: Prepare version once
+        id: version
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: bun scripts/release-ci.js prepare
+      - name: Check for an existing release
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "This release already exists. Inspect or remove its draft before retrying." >&2
+            exit 1
+          fi
+      - name: Generate release notes
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          bun scripts/release-ci.js notes
+          cat docs/platform-support.md >> dist/RELEASE_NOTES.md
+      - name: Preserve versioned build inputs
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-inputs
+          path: |
+            Cargo.toml
+            Cargo.lock
+            package.json
+            apps/mterm/macos/Info.plist
+            dist/RELEASE_NOTES.md
+
+  # The macOS application is checked in parallel with the build instead of
+  # compiling the GPUI tree a second time inside the build job.
+  macos_checks:
+    name: 3 · macOS checks
+    needs: prepare
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-inputs
+          path: .
+      - run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-macos-checks
+      - name: Lint and test the workspace
+        run: |
+          cargo clippy --locked --workspace --all-targets -- -D warnings
+          cargo test --locked --workspace
+
+  macos_arm64:
+    name: 3 · macOS Apple Silicon
+    needs: prepare
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/build-release
+        with:
+          arch: arm64
+          release-tag: ${{ needs.prepare.outputs.tag }}
+
+  verify:
+    name: 4 · Verify packages
+    if: success()
+    needs: [macos_checks, macos_arm64]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.metadata.outputs.tag }}
+      sha: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-inputs
+          path: .
+      - name: Read prepared version
+        id: metadata
+        run: |
+          bun -e 'const fs = require("node:fs"); const { version } = JSON.parse(fs.readFileSync("package.json", "utf8")); fs.appendFileSync(process.env.GITHUB_OUTPUT, `tag=v${version}\n`);'
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-*-*
+          merge-multiple: true
+          path: dist
+      - name: Verify the package and generate checksums
+        env:
+          RELEASE_TAG: ${{ steps.metadata.outputs.tag }}
+        run: bun scripts/package-release.js finalize
+      - name: Preserve verified release
+        uses: actions/upload-artifact@v7
+        with:
+          name: verified-release
+          if-no-files-found: error
+          path: |
+            dist/mTerm-*.zip
+            dist/SHA256SUMS.txt
+            dist/RELEASE_NOTES.md
+
+  publish:
+    name: 5 · Publish
+    if: success()
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.verify.outputs.tag }}
+      RELEASE_SHA: ${{ needs.verify.outputs.sha }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: verified-release
+          path: dist
+      - name: Publish GitHub release
+        run: |
+          cd dist
+          sha256sum --check SHA256SUMS.txt
+          gh release create "$RELEASE_TAG" mTerm-*.zip SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --target "$RELEASE_SHA" --title "mTerm ${RELEASE_TAG#v}" \
+            --notes-file RELEASE_NOTES.md --draft
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest

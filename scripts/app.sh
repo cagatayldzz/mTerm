@@ -2,7 +2,7 @@
 # Usage:
 #   scripts/app.sh --dev                     debug build, then launch dist/mTerm.app
 #   scripts/app.sh [debug|release] --build   build dist/mTerm.app (default: debug)
-#   scripts/app.sh --check                   formatting, clippy and tests
+#   scripts/app.sh --check                   scripts, formatting, clippy and tests
 #   scripts/app.sh --icon                    regenerate AppIcon.icns from icon.svg
 set -euo pipefail
 
@@ -39,6 +39,7 @@ command -v cargo >/dev/null 2>&1 || fail "Rust was not found. Install the Rust t
 
 # Formatting, clippy and tests.
 run_check() {
+  bun test scripts
   cargo fmt --all -- --check
   cargo clippy --locked --workspace --all-targets -- -D warnings
   cargo test --locked --workspace
