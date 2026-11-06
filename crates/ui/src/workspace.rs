@@ -371,6 +371,8 @@ impl Workspace {
 
   /// Types text at the prompt without running it.
   pub(crate) fn insert_text(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+    // Typing into the terminal brings it back from Settings.
+    self.settings = None;
     if let Some(pane) = self.focused_pane() {
       pane.session.write(paste_bytes(text, pane.session.modes().bracketed_paste));
     }
@@ -440,6 +442,9 @@ impl Render for Workspace {
       .track_focus(&self.focus_handle)
       .on_key_down(cx.listener(Self::on_key_down))
       .on_action(cx.listener(|this, _: &ToggleSidebar, window, cx| {
+        if this.settings.is_some() {
+          return;
+        }
         this.sidebar_open = !this.sidebar_open;
         // The next launch, and the next window, start the way this one was left.
         let open = this.sidebar_open;
@@ -479,7 +484,8 @@ impl Render for Workspace {
       .size_full()
       .bg(theme.background)
       .text_color(theme.foreground)
-      .when(self.sidebar_open, |this| this.child(self.render_history(cx)))
+      // Settings take the whole window: the history sidebar is part of the terminal, not of Settings.
+      .when(self.sidebar_open && self.settings.is_none(), |this| this.child(self.render_history(cx)))
       .child(page)
       // A soft black veil over every window that is not the one in use.
       .when(inactive, |this| this.child(div().absolute().top_0().left_0().size_full().bg(black().opacity(INACTIVE_VEIL))))
