@@ -78,7 +78,7 @@ impl Workspace {
       // gaining focus changes whether the others are dimmed.
       cx.observe_window_activation(window, |this, window, cx| {
         if window.is_window_active() {
-          this.saved_sessions = SavedSession::list(&SavedSession::directory_path());
+          this.sync_saved_sessions(cx);
         }
         cx.notify();
         cx.defer(|cx| {
@@ -94,6 +94,7 @@ impl Workspace {
           this.applied_theme = theme;
           apply_theme(theme, window, cx);
         }
+        this.sync_saved_sessions(cx);
         this.announce_update(window, cx);
         cx.notify();
       }),
@@ -248,13 +249,14 @@ impl Workspace {
   }
 
   pub(crate) fn new_tab(&mut self, cx: &App) {
+    let migrate_legacy = !SavedSession::directory_path().exists();
     let directory = self.directory.clone().or_else(|| std::env::var_os("HOME").map(Into::into)).unwrap_or_default();
     let saved = SavedSession::new(format!("Session {}", self.saved_sessions.len() + 1), directory);
     if let Err(error) = saved.save(&SavedSession::directory_path()) {
       self.error = Some(format!("Could not save the session: {error}"));
       return;
     }
-    if self.saved_sessions.is_empty() {
+    if migrate_legacy {
       let old_history = History::load(&History::default_path());
       if !old_history.entries().is_empty() {
         if let Err(error) = old_history.save(&saved.history_path(&SavedSession::directory_path())) {
@@ -268,6 +270,7 @@ impl Workspace {
       }
     }
     self.saved_sessions.push(saved.clone());
+    SavedSession::sort(&mut self.saved_sessions);
     self.open_session(saved, cx);
   }
 
@@ -312,6 +315,82 @@ impl Workspace {
       self.focus_handle.focus(window, cx);
       cx.notify();
     }
+  }
+
+  /// Reconciles saved sessions across windows without discarding other live terminals.
+  fn sync_saved_sessions(&mut self, cx: &App) {
+    let saved = match SavedSession::try_list(&SavedSession::directory_path()) {
+      Ok(saved) => saved,
+      Err(error) => {
+        eprintln!("Could not read saved sessions: {error}");
+        return;
+      }
+    };
+    let active_id = self.tabs.get(self.active).map(|tab| tab.saved.id.clone());
+    let removed: Vec<_> =
+      self.tabs.iter().filter(|tab| !saved.iter().any(|item| item.id == tab.saved.id)).flat_map(|tab| tab.root.leaves()).collect();
+    for id in removed {
+      self.panes.remove(&id);
+    }
+    self.tabs.retain(|tab| saved.iter().any(|item| item.id == tab.saved.id));
+    for tab in &mut self.tabs {
+      if let Some(item) = saved.iter().find(|item| item.id == tab.saved.id) {
+        tab.saved.pinned = item.pinned;
+      }
+    }
+    self.saved_sessions = saved;
+    let active_removed = active_id.as_ref().is_some_and(|id| !self.tabs.iter().any(|tab| &tab.saved.id == id));
+    self.active = active_id
+      .and_then(|id| self.tabs.iter().position(|tab| tab.saved.id == id))
+      .unwrap_or_else(|| self.active.min(self.tabs.len().saturating_sub(1)));
+    if active_removed {
+      if let Some(tab) = self.tabs.get(self.active) {
+        if let Err(error) = tab.saved.remember_selected(&SavedSession::directory_path()) {
+          eprintln!("Could not save the selected session: {error}");
+        }
+      }
+    }
+    if self.tabs.is_empty() {
+      if let Some(saved) = self.saved_sessions.first().cloned() {
+        self.open_session(saved, cx);
+      } else {
+        self.new_tab(cx);
+      }
+    }
+  }
+
+  pub(crate) fn toggle_session_pin(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+    let Some(mut saved) = self.saved_sessions.iter().find(|session| session.id == id).cloned() else { return };
+    saved.pinned = !saved.pinned;
+    if let Err(error) = saved.save(&SavedSession::directory_path()) {
+      window.push_notification(component::notification::Notification::error(format!("Could not update the session: {error}")), cx);
+      return;
+    }
+    self.sync_saved_sessions(cx);
+    self.model.update(cx, |_, cx| cx.notify());
+    cx.notify();
+  }
+
+  pub(crate) fn confirm_delete_session(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+    let Some(saved) = self.saved_sessions.iter().find(|session| session.id == id) else { return };
+    let title = format!("Delete {}?", saved.name);
+    let detail = "This deletes the saved session, its command history and layout. Running terminals in this session will close. Files in its working directory are not deleted.";
+    let answer = window.prompt(PromptLevel::Warning, &title, Some(detail), &["Cancel", "Delete Session"], cx);
+    cx.spawn_in(window, async move |this, cx| {
+      if answer.await == Ok(1) {
+        let _ = this.update_in(cx, |this, window, cx| {
+          let Some(saved) = this.saved_sessions.iter().find(|session| session.id == id).cloned() else { return };
+          if let Err(error) = saved.delete(&SavedSession::directory_path()) {
+            window.push_notification(component::notification::Notification::error(format!("Could not delete the session: {error}")), cx);
+            return;
+          }
+          this.sync_saved_sessions(cx);
+          this.model.update(cx, |_, cx| cx.notify());
+          cx.notify();
+        });
+      }
+    })
+    .detach();
   }
 
   pub(crate) fn split(&mut self, split: Split, cx: &App) {
@@ -533,7 +612,11 @@ impl Workspace {
     if self.settings.is_some() {
       return;
     }
-    if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+    let Some(item) = cx.read_from_clipboard() else { return };
+    if item.entries.iter().any(|entry| matches!(entry, ClipboardEntry::Image(_))) {
+      // Terminal applications such as Codex read image data from the clipboard themselves.
+      self.write(vec![0x16]);
+    } else if let Some(text) = item.text() {
       if text.contains('\n') {
         if let Some(id) = self.focused_pane_id() {
           if let Some(pane) = self.panes.get_mut(&id) {
@@ -546,14 +629,21 @@ impl Workspace {
   }
 
   pub(crate) fn palette(cx: &App) -> Palette {
-    if cx.global::<AppGlobal>().0.read(cx).theme() == ThemeChoice::SlateDark {
+    let choice = cx.global::<AppGlobal>().0.read(cx).theme();
+    if matches!(choice, ThemeChoice::GithubDark | ThemeChoice::GithubLight) {
+      let dark = choice == ThemeChoice::GithubDark;
+      let mut palette = if dark { Palette::dark() } else { Palette::light() };
+      palette.background = if dark { mterm_terminal::Rgb::new(0x0d, 0x11, 0x17) } else { mterm_terminal::Rgb::new(0xff, 0xff, 0xff) };
+      palette.foreground = if dark { mterm_terminal::Rgb::new(0xc9, 0xd1, 0xd9) } else { mterm_terminal::Rgb::new(0x24, 0x29, 0x2f) };
+      palette
+    } else if choice == ThemeChoice::SlateDark {
       let mut palette = Palette::dark();
       palette.background = mterm_terminal::Rgb::new(0x1e, 0x24, 0x28);
       palette.foreground = mterm_terminal::Rgb::new(0xe4, 0xe8, 0xed);
       palette.ansi[0] = palette.background;
       palette.ansi[7] = palette.foreground;
       palette
-    } else if cx.global::<AppGlobal>().0.read(cx).theme() == ThemeChoice::SlateLight {
+    } else if choice == ThemeChoice::SlateLight {
       let mut palette = Palette::light();
       palette.background = mterm_terminal::Rgb::new(0xfa, 0xfa, 0xfa);
       palette.foreground = mterm_terminal::Rgb::new(0x1e, 0x29, 0x3b);

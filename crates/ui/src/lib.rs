@@ -45,9 +45,10 @@ actions!(
 pub fn init(cx: &mut App) {
   if let Err(error) = cx.text_system().add_fonts(vec![
     std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/Geist.ttf")),
+    std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/GeistMono.ttf")),
     std::borrow::Cow::Borrowed(include_bytes!("../assets/fonts/Inter.ttf")),
   ]) {
-    eprintln!("Could not load interface fonts: {error}");
+    eprintln!("Could not load fonts: {error}");
   }
   let model = cx.new(|_| AppModel::new());
   cx.set_global(AppGlobal(model.clone()));

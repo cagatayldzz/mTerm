@@ -14,10 +14,12 @@ pub enum ThemeChoice {
   Dark,
   SlateDark,
   SlateLight,
+  GithubDark,
+  GithubLight,
 }
 
 impl ThemeChoice {
-  pub const ALL: [Self; 5] = [Self::System, Self::Light, Self::Dark, Self::SlateDark, Self::SlateLight];
+  pub const ALL: [Self; 7] = [Self::System, Self::Light, Self::Dark, Self::SlateDark, Self::SlateLight, Self::GithubDark, Self::GithubLight];
 
   /// The stored code.
   pub fn code(self) -> &'static str {
@@ -27,6 +29,8 @@ impl ThemeChoice {
       Self::Dark => "dark",
       Self::SlateDark => "slate-dark",
       Self::SlateLight => "slate-light",
+      Self::GithubDark => "github-dark",
+      Self::GithubLight => "github-light",
     }
   }
 
@@ -37,6 +41,8 @@ impl ThemeChoice {
       "dark" => Self::Dark,
       "slate" | "slate-dark" => Self::SlateDark,
       "slate-light" => Self::SlateLight,
+      "github-dark" => Self::GithubDark,
+      "github-light" => Self::GithubLight,
       _ => Self::System,
     }
   }

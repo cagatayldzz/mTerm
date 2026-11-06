@@ -10,6 +10,41 @@ pub(crate) fn apply_theme(choice: ThemeChoice, window: &mut Window, cx: &mut App
     ThemeChoice::System => Theme::sync_system_appearance(Some(window), cx),
     ThemeChoice::Light => Theme::change(ThemeMode::Light, Some(window), cx),
     ThemeChoice::Dark => Theme::change(ThemeMode::Dark, Some(window), cx),
+    ThemeChoice::GithubDark | ThemeChoice::GithubLight => {
+      let dark = choice == ThemeChoice::GithubDark;
+      Theme::change(if dark { ThemeMode::Dark } else { ThemeMode::Light }, Some(window), cx);
+      Theme::update(cx, |theme| {
+        let colors = &mut theme.colors;
+        let (background, foreground, sidebar, border, muted, accent, primary, popover) = if dark {
+          (0x0d1117, 0xc9d1d9, 0x161b22, 0x30363d, 0x8b949e, 0x21262d, 0x238636, 0x161b22)
+        } else {
+          (0xffffff, 0x24292f, 0xf6f8fa, 0xd0d7de, 0x57606a, 0xeaeef2, 0x1f883d, 0xffffff)
+        };
+        colors.background = rgb(background).into();
+        colors.foreground = rgb(foreground).into();
+        colors.sidebar = rgb(sidebar).into();
+        colors.sidebar_foreground = rgb(foreground).into();
+        colors.sidebar_border = rgb(border).into();
+        colors.sidebar_accent = rgb(accent).into();
+        colors.sidebar_accent_foreground = rgb(foreground).into();
+        colors.sidebar_primary = rgb(primary).into();
+        colors.sidebar_primary_foreground = rgb(0xffffff).into();
+        colors.border = rgb(border).into();
+        colors.input = rgb(border).into();
+        colors.popover = rgb(popover).into();
+        colors.popover_foreground = rgb(foreground).into();
+        colors.muted = rgb(accent).into();
+        colors.muted_foreground = rgb(muted).into();
+        colors.secondary = rgb(accent).into();
+        colors.secondary_foreground = rgb(foreground).into();
+        colors.accent = rgb(accent).into();
+        colors.accent_foreground = rgb(foreground).into();
+        colors.primary = rgb(primary).into();
+        colors.primary_foreground = rgb(0xffffff).into();
+        colors.ring = rgb(if dark { 0x58a6ff } else { 0x0969da }).into();
+        colors.selection = rgb(if dark { 0x1f6feb } else { 0xb6d7ff }).into();
+      });
+    }
     ThemeChoice::SlateDark => {
       Theme::change(ThemeMode::Dark, Some(window), cx);
       Theme::update(cx, |theme| {

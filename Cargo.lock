@@ -3767,6 +3767,7 @@ dependencies = [
  "mterm-storage",
  "mterm-terminal",
  "mterm-updater",
+ "unicode-width",
 ]
 
 [[package]]

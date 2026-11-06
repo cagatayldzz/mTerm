@@ -5,7 +5,11 @@ use crate::{
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-  component::{h_flex, v_flex, ActiveTheme, Icon, IconName, Sizable, TitleBar},
+  component::{
+    h_flex,
+    menu::{ContextMenuExt as _, PopupMenuItem},
+    v_flex, ActiveTheme, Icon, IconName, Sizable, TitleBar,
+  },
   *,
 };
 
@@ -20,6 +24,9 @@ impl Workspace {
       .iter()
       .map(|saved| {
         let id = saved.id.clone();
+        let menu_id = id.clone();
+        let workspace = cx.weak_entity();
+        let pinned = saved.pinned;
         let selected = active_id == Some(saved.id.as_str());
         let directory = saved.directory.display().to_string();
         v_flex()
@@ -33,16 +40,43 @@ impl Workspace {
           .hover(|style| style.bg(theme.sidebar_accent))
           .text_color(theme.sidebar_foreground)
           .child(
-            div()
-              .text_size(px(12.))
-              .font_weight(FontWeight::SEMIBOLD)
-              .overflow_hidden()
-              .whitespace_nowrap()
-              .text_ellipsis()
-              .child(saved.name.clone()),
+            h_flex()
+              .items_center()
+              .gap_1()
+              .child(
+                div()
+                  .flex_1()
+                  .min_w_0()
+                  .text_size(px(12.))
+                  .font_weight(FontWeight::SEMIBOLD)
+                  .overflow_hidden()
+                  .whitespace_nowrap()
+                  .text_ellipsis()
+                  .child(saved.name.clone()),
+              )
+              .when(pinned, |this| this.child(Icon::new(gpui_kit_assets::IconName::Pin).with_size(component::Size::Size(px(12.))))),
           )
           .child(div().text_size(px(11.)).text_color(theme.muted_foreground).overflow_hidden().whitespace_nowrap().text_ellipsis().child(directory))
           .on_click(cx.listener(move |this, _, window, cx| this.select_session(&id, window, cx)))
+          .context_menu(move |menu, _, _| {
+            let pin_id = menu_id.clone();
+            let delete_id = menu_id.clone();
+            let pin_workspace = workspace.clone();
+            let delete_workspace = workspace.clone();
+            menu
+              .item(
+                PopupMenuItem::new(if pinned { "Unpin session" } else { "Pin session" }).icon(Icon::new(gpui_kit_assets::IconName::Pin)).on_click(
+                  move |_, window, cx| {
+                    let _ = pin_workspace.update(cx, |this, cx| this.toggle_session_pin(&pin_id, window, cx));
+                  },
+                ),
+              )
+              .separator()
+              .item(PopupMenuItem::new("Delete session").icon(Icon::new(gpui_kit_assets::IconName::Trash)).on_click(move |_, window, cx| {
+                let id = delete_id.clone();
+                let _ = delete_workspace.update(cx, |this, cx| this.confirm_delete_session(id, window, cx));
+              }))
+          })
           .into_any_element()
       })
       .collect();

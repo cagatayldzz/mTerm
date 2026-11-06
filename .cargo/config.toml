@@ -3,3 +3,7 @@
 # code and has no newer release in GPUI's dependency tree yet.
 [future-incompat-report]
 frequency = "never"
+
+# Match the app bundle for builds, tests and clippy so Cargo can reuse dependencies.
+[env]
+MACOSX_DEPLOYMENT_TARGET = { value = "15.0", force = true }

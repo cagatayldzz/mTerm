@@ -13,7 +13,9 @@ use gpui_kit::{
   },
   *,
 };
+use mterm_storage::FontChoice;
 use mterm_terminal::{Palette, Rgb, Snapshot};
+use unicode_width::UnicodeWidthChar as _;
 
 const FONT_FAMILY: &str = "Menlo";
 const FONT_SIZE: Pixels = px(13.);
@@ -51,6 +53,7 @@ fn color(rgb: Rgb) -> Hsla {
 struct Metrics {
   font: Font,
   cell_width: Pixels,
+  fixed_cells: bool,
   palette: Palette,
 }
 
@@ -63,10 +66,28 @@ impl Workspace {
       return div().flex_1().p(PADDING).bg(color(palette.background)).text_color(color(palette.foreground)).child(message).into_any_element();
     };
     let (root, focused) = (tab.root.clone(), tab.focused);
-    let font = font(FONT_FAMILY);
-    let font_id = window.text_system().resolve_font(&font);
-    let cell_width = window.text_system().advance(font_id, FONT_SIZE, 'm').map(|size| size.width).unwrap_or(px(7.8));
-    let metrics = Metrics { font, cell_width, palette };
+    let choice = self.model.read(cx).preferences.font;
+    let family = match choice {
+      FontChoice::Default => FONT_FAMILY,
+      FontChoice::Geist => "Geist Mono",
+      FontChoice::Inter => "Inter",
+    };
+    let font = font(family);
+    let fixed_cells = choice == FontChoice::Inter;
+    let text_system = window.text_system();
+    let font_id = text_system.resolve_font(&font);
+    let mut cell_width = text_system.advance(font_id, FONT_SIZE, 'm').map(|size| size.width).unwrap_or(px(7.8));
+    if fixed_cells {
+      let bold_id = text_system.resolve_font(&Font { weight: FontWeight::BOLD, ..font.clone() });
+      for id in [font_id, bold_id] {
+        for character in ['m', 'W'] {
+          if let Ok(advance) = text_system.advance(id, FONT_SIZE, character) {
+            cell_width = cell_width.max(advance.width);
+          }
+        }
+      }
+    }
+    let metrics = Metrics { font, cell_width, fixed_cells, palette };
     let split = root.leaves().len() > 1;
     // Panes are placed at explicit rectangles: flex percentages do not resolve reliably for nested splits.
     let sidebar = if self.sidebar_open { SIDEBAR_WIDTH } else { px(0.) };
@@ -184,9 +205,13 @@ impl Workspace {
           .overflow_hidden()
           .p(PADDING)
           .text_size(FONT_SIZE)
-          .font_family(FONT_FAMILY)
+          .font_family(metrics.font.family.clone())
           .text_color(color(metrics.palette.foreground))
-          .child(rows(&snapshot, &metrics.font)),
+          .child(if metrics.fixed_cells {
+            fixed_cell_rows(&snapshot, &metrics.font, metrics.cell_width).into_any_element()
+          } else {
+            rows(&snapshot, &metrics.font).into_any_element()
+          }),
       )
       // Panes other than the focused one sit under a lighter veil of the same kind.
       .when(split && !focused, |this| this.child(div().absolute().top(header_height).left_0().right_0().bottom_0().bg(black().opacity(PANE_VEIL))))
@@ -331,6 +356,61 @@ fn rows(snapshot: &Snapshot, base: &Font) -> impl IntoElement {
       .overflow_hidden()
       .whitespace_nowrap()
       .child(StyledText::new(text).with_runs(runs))
+  });
+  div().w_full().children(lines)
+}
+
+/// Draws proportional fonts in terminal cells so columns and cursor positions stay aligned.
+fn fixed_cell_rows(snapshot: &Snapshot, base: &Font, cell_width: Pixels) -> impl IntoElement {
+  let bold = Font { weight: FontWeight::BOLD, ..base.clone() };
+  let italic = Font { style: FontStyle::Italic, ..base.clone() };
+  let bold_italic = Font { weight: FontWeight::BOLD, style: FontStyle::Italic, ..base.clone() };
+  let lines = snapshot.lines.iter().enumerate().map(|(index, spans)| {
+    let mut cells = Vec::new();
+    for span in spans {
+      let foreground = color(span.foreground);
+      let font = match (span.bold, span.italic) {
+        (true, true) => &bold_italic,
+        (true, false) => &bold,
+        (false, true) => &italic,
+        (false, false) => base,
+      };
+      let mut characters = span.text.chars().peekable();
+      while let Some(character) = characters.next() {
+        if character == ' ' && !span.underline && !span.strikeout {
+          let mut count = 1;
+          while characters.peek() == Some(&' ') {
+            characters.next();
+            count += 1;
+          }
+          cells.push(
+            div().w(cell_width * count as f32).h_full().flex_shrink_0().when_some(span.background, |this, background| this.bg(color(background))),
+          );
+          continue;
+        }
+        let width = character.width().unwrap_or(1).clamp(1, 2);
+        let text = character.to_string();
+        let run = TextRun {
+          len: text.len(),
+          font: font.clone(),
+          color: foreground,
+          background_color: None,
+          underline: span.underline.then(|| UnderlineStyle { thickness: px(1.), color: Some(foreground), wavy: false }),
+          strikethrough: span.strikeout.then(|| StrikethroughStyle { thickness: px(1.), color: Some(foreground) }),
+        };
+        cells.push(
+          div()
+            .w(cell_width * width as f32)
+            .h_full()
+            .flex_shrink_0()
+            .overflow_hidden()
+            .whitespace_nowrap()
+            .when_some(span.background, |this, background| this.bg(color(background)))
+            .child(StyledText::new(text).with_runs(vec![run])),
+        );
+      }
+    }
+    div().id(("line", index)).h(LINE_HEIGHT).w_full().flex().flex_shrink_0().overflow_hidden().children(cells)
   });
   div().w_full().children(lines)
 }

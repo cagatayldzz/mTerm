@@ -80,7 +80,7 @@ pub(crate) fn render_settings(model: &Entity<AppModel>, page: SettingsPage, epoc
             move |value, cx| font_set.update(cx, |model, cx| model.set_font(FontChoice::from_code(value.as_ref()), cx)),
           ),
         )
-        .description("Choose the font used by the interface."),
+        .description("Choose the interface font. Geist Mono is used in the terminal when Geist is selected."),
       ),
   );
 
@@ -130,6 +130,8 @@ fn theme_options() -> Vec<(SharedString, SharedString)> {
         ThemeChoice::Dark => "Dark",
         ThemeChoice::SlateDark => "Slate Dark",
         ThemeChoice::SlateLight => "Slate Light",
+        ThemeChoice::GithubDark => "GitHub Dark",
+        ThemeChoice::GithubLight => "GitHub Light",
       };
       (choice.code().into(), label.into())
     })

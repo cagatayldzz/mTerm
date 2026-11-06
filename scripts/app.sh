@@ -76,8 +76,6 @@ compile() {
   local profile_flags=()
   [[ "$configuration" == release ]] && profile_flags=(--release)
 
-  # Link for the oldest supported macOS rather than the build machine.
-  export MACOSX_DEPLOYMENT_TARGET="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$resources/Info.plist")"
   cargo build --locked ${profile_flags[@]+"${profile_flags[@]}"} -p mterm
 }
 

@@ -41,7 +41,9 @@ without a window.
 Each window owns one `Workspace`. A saved session has its own name, last known
 shell directory, recorded commands and split layout under `sessions/<id>/` in
 the data directory. The sidebar lists saved sessions and can create or reopen
-them. A live session occupies a tab, which is a binary tree of panes plus the
+them. Its context menu pins sessions above unpinned ones or deletes the saved
+session after confirmation; deletion closes its live panes, but leaves files in
+its working directory untouched. A live session occupies a tab, which is a binary tree of panes plus the
 focused pane. Switching tabs keeps their running processes and screens alive.
 On restart, selecting a session starts fresh shells in its saved directory;
 processes and terminal output cannot be restored. A missing directory falls back
