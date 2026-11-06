@@ -1,7 +1,7 @@
 use crate::{
   history::{icon_button, sidebar_toggle},
   workspace::{Workspace, TOOLBAR_HEIGHT},
-  NewTab,
+  NewTab, OpenSettings,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -56,7 +56,12 @@ impl Workspace {
       .bg(background)
       .border_b_1()
       .border_color(band_line(&theme))
-      .child(h_flex().w_full().h_full().items_center().gap_2().child(sidebar_toggle(icon, tooltip)).child(middle).child(div().w(px(24.))))
+      .child(h_flex().w_full().h_full().items_center().gap_2().child(sidebar_toggle(icon, tooltip)).child(middle).child(icon_button(
+        "open-settings",
+        IconName::Settings,
+        "Settings (⌘,)",
+        |_, window, cx| window.dispatch_action(Box::new(OpenSettings), cx),
+      )))
   }
 
   fn render_tabs(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {

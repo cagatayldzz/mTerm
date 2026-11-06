@@ -1,7 +1,7 @@
 use crate::{
   tabs::band_line,
   workspace::{Workspace, SIDEBAR_WIDTH, TOOLBAR_HEIGHT},
-  OpenSettings, ToggleSidebar,
+  ToggleSidebar,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -83,13 +83,6 @@ impl Workspace {
       } else {
         v_flex().id("history-list").flex_1().min_h_0().px_2().pb_2().gap(px(1.)).overflow_y_scroll().children(items).into_any_element()
       })
-      // Settings live at the bottom of the sidebar.
-      .child(h_flex().h(px(40.)).flex_shrink_0().px_3().items_center().child(icon_button(
-        "open-settings",
-        IconName::Settings,
-        "Settings (⌘,)",
-        |_, window, cx| window.dispatch_action(Box::new(OpenSettings), cx),
-      )))
   }
 }
 
