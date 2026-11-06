@@ -7,7 +7,7 @@ mod palette;
 mod session;
 mod snapshot;
 
-pub use keys::{encode_key, paste_bytes, Modifiers};
+pub use keys::{dropped_paths, encode_key, paste_bytes, Modifiers};
 pub use palette::{Palette, Rgb};
 pub use session::{Modes, Session, SessionEvent, SessionOptions};
 pub use snapshot::{Cursor, Snapshot, Span};

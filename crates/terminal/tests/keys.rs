@@ -1,4 +1,11 @@
-use mterm_terminal::{encode_key, paste_bytes, Modifiers};
+use mterm_terminal::{dropped_paths, encode_key, paste_bytes, Modifiers};
+
+#[test]
+fn dropped_paths_are_escaped_as_separate_shell_arguments() {
+  use std::path::Path;
+
+  assert_eq!(dropped_paths([Path::new("/tmp/a file.png"), Path::new("/tmp/it's $(here).png")]), "/tmp/a\\ file.png /tmp/it\\'s\\ \\$\\(here\\).png");
+}
 
 fn plain() -> Modifiers {
   Modifiers::default()

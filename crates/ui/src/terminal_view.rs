@@ -166,6 +166,13 @@ impl Workspace {
       .bg(background)
       .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| this.focus_pane(id, window, cx)))
       .on_mouse_down(MouseButton::Right, cx.listener(move |this, _, window, cx| this.focus_pane(id, window, cx)))
+      .on_drop(cx.listener(move |this, paths: &ExternalPaths, window, cx| {
+        let text = mterm_terminal::dropped_paths(paths.paths().iter().map(|path| path.as_path()));
+        if !text.is_empty() {
+          this.focus_pane(id, window, cx);
+          this.insert_text(&text, window, cx);
+        }
+      }))
       .on_scroll(cx.listener(move |this, event: &ScrollEvent, _, cx| {
         let Some(pane) = this.panes.get_mut(&id) else { return };
         pane.scroll_remainder += f32::from(event.delta.pixel_delta(LINE_HEIGHT).y) / f32::from(LINE_HEIGHT);

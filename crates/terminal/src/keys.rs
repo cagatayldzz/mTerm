@@ -61,6 +61,25 @@ pub fn paste_bytes(text: &str, bracketed: bool) -> Vec<u8> {
   }
 }
 
+/// Formats dropped paths as shell arguments without executing them.
+pub fn dropped_paths<'a>(paths: impl IntoIterator<Item = &'a std::path::Path>) -> String {
+  paths
+    .into_iter()
+    .map(|path| {
+      let text = path.to_string_lossy();
+      let mut escaped = String::new();
+      for character in text.chars() {
+        if !character.is_ascii_alphanumeric() && !matches!(character, '/' | '.' | '_' | '-') {
+          escaped.push('\\');
+        }
+        escaped.push(character);
+      }
+      escaped
+    })
+    .collect::<Vec<_>>()
+    .join(" ")
+}
+
 fn control_byte(c: char) -> Option<u8> {
   match c.to_ascii_lowercase() {
     letter @ 'a'..='z' => Some(letter as u8 - b'a' + 1),
