@@ -42,6 +42,8 @@ pub(crate) fn render_settings(model: &Entity<AppModel>, page: SettingsPage, epoc
 
   let (theme_get, theme_set) = (model.clone(), model.clone());
   let (font_get, font_set) = (model.clone(), model.clone());
+  let (size_get, size_set) = (model.clone(), model.clone());
+  let (height_get, height_set) = (model.clone(), model.clone());
   let general = SettingPage::new("General").icon(IconName::Settings).description("How mTerm looks.").group(
     SettingGroup::new()
       .title("Appearance")
@@ -81,6 +83,36 @@ pub(crate) fn render_settings(model: &Entity<AppModel>, page: SettingsPage, epoc
           ),
         )
         .description("Choose the interface font. Geist Mono is used in the terminal when Geist is selected."),
+      )
+      .item(
+        SettingItem::new(
+          "Terminal font size",
+          SettingField::dropdown(
+            (9..=24).map(|value| (value.to_string().into(), format!("{value} px").into())).collect(),
+            move |cx| size_get.read(cx).preferences.terminal_font_size.to_string().into(),
+            move |value, cx| {
+              if let Ok(size) = value.parse::<u8>() {
+                size_set.update(cx, |model, cx| model.set_terminal_font_size(size, cx));
+              }
+            },
+          ),
+        )
+        .description("Set the text size in terminal panes."),
+      )
+      .item(
+        SettingItem::new(
+          "Terminal line height",
+          SettingField::dropdown(
+            (12..=36).map(|value| (value.to_string().into(), format!("{value} px").into())).collect(),
+            move |cx| height_get.read(cx).preferences.terminal_line_height.to_string().into(),
+            move |value, cx| {
+              if let Ok(height) = value.parse::<u8>() {
+                height_set.update(cx, |model, cx| model.set_terminal_line_height(height, cx));
+              }
+            },
+          ),
+        )
+        .description("Set the spacing between terminal lines."),
       ),
   );
 

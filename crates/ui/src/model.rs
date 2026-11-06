@@ -79,6 +79,17 @@ impl AppModel {
     self.save(cx);
   }
 
+  pub fn set_terminal_font_size(&mut self, size: u8, cx: &mut Context<Self>) {
+    self.preferences.terminal_font_size = size.clamp(9, 24);
+    self.preferences.terminal_line_height = self.preferences.terminal_line_height.max(self.preferences.terminal_font_size);
+    self.save(cx);
+  }
+
+  pub fn set_terminal_line_height(&mut self, height: u8, cx: &mut Context<Self>) {
+    self.preferences.terminal_line_height = height.clamp(12, 36).max(self.preferences.terminal_font_size);
+    self.save(cx);
+  }
+
   pub fn set_check_updates(&mut self, value: bool, cx: &mut Context<Self>) {
     self.preferences.check_updates = value;
     self.save(cx);

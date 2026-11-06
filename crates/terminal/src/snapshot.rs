@@ -1,4 +1,5 @@
 use crate::palette::{Palette, Rgb};
+use unicode_width::UnicodeWidthChar as _;
 
 /// A run of cells that share one style.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,9 +29,42 @@ pub struct Snapshot {
   pub columns: usize,
   /// Lines scrolled back from the bottom; `0` follows the live output.
   pub scrolled: usize,
+  /// Explicit OSC 8 hyperlink targets indexed by viewport cell.
+  pub hyperlinks: Vec<Vec<Option<String>>>,
 }
 
 impl Snapshot {
+  /// Returns the explicit or plain web link under a viewport cell.
+  pub fn link_at(&self, line: usize, column: usize) -> Option<String> {
+    if let Some(Some(link)) = self.hyperlinks.get(line).and_then(|row| row.get(column)) {
+      return Some(link.clone());
+    }
+    let text = self.line_text(line);
+    let mut cell = 0;
+    for word in text.split_whitespace() {
+      let start_byte = text[cell..].find(word)? + cell;
+      let start_column: usize = text[..start_byte].chars().map(|c| c.width().unwrap_or(0)).sum();
+      cell = start_byte + word.len();
+      let prefix = word.find("https://").or_else(|| word.find("http://")).or_else(|| {
+        let trimmed = word.trim_start_matches(['(', '[', '{', '<', '"', '\'']);
+        if trimmed.starts_with('/') || trimmed.starts_with("./") || trimmed.starts_with("../") || trimmed.starts_with("~/") {
+          Some(word.len() - trimmed.len())
+        } else {
+          None
+        }
+      });
+      if let Some(prefix) = prefix {
+        let target = word[prefix..].trim_end_matches(['.', ',', ';', ':', '!', '?', ')', ']', '}', '>', '"', '\'']);
+        let link_start = start_column + word[..prefix].chars().map(|c| c.width().unwrap_or(0)).sum::<usize>();
+        let link_end = link_start + target.chars().map(|c| c.width().unwrap_or(0)).sum::<usize>();
+        if column >= link_start && column < link_end {
+          return Some(target.to_owned());
+        }
+      }
+    }
+    None
+  }
+
   /// The text of one line without styling, with trailing blanks removed.
   pub fn line_text(&self, line: usize) -> String {
     let text: String = self.lines.get(line).map(|spans| spans.iter().map(|span| span.text.as_str()).collect()).unwrap_or_default();

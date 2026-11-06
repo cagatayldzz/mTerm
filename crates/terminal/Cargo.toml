@@ -17,3 +17,4 @@ doctest = false
 
 [dependencies]
 alacritty_terminal.workspace = true
+unicode-width = "0.2"

@@ -40,6 +40,8 @@ pub const CONTEXT: &str = "Workspace";
 pub(crate) struct Pane {
   pub session: Rc<Session>,
   pub title: String,
+  pub directory: Option<PathBuf>,
+  pub content_bounds: Rc<std::cell::Cell<Option<Bounds<Pixels>>>>,
   line: String,
   line_unreliable: bool,
   /// Fractional lines left over from smooth scrolling.
@@ -209,6 +211,9 @@ impl Workspace {
           }
         }
         SessionEvent::Directory(directory) => {
+          if let Some(pane) = self.panes.get_mut(&id) {
+            pane.directory = Some(directory.clone());
+          }
           if let Some(tab) = self.tabs.iter().find(|tab| tab.root.leaves().contains(&id)) {
             if tab.focused == id && tab.saved.directory != directory {
               let mut updated = tab.saved.clone();
@@ -242,6 +247,7 @@ impl Workspace {
       working_directory: directory.or_else(|| std::env::var_os("HOME").map(Into::into)),
       palette: Some(Self::palette(cx)),
     };
+    let pane_directory = options.working_directory.clone();
     match Session::spawn(options, 80, 24, move |event| {
       let _ = sender.unbounded_send((id, event));
     }) {
@@ -249,7 +255,18 @@ impl Workspace {
         self.next_pane += 1;
         let title =
           std::env::var("SHELL").ok().and_then(|path| path.rsplit('/').next().map(|name| format!("-{name}"))).unwrap_or_else(|| "mTerm".into());
-        self.panes.insert(id, Pane { session: Rc::new(session), title, line: String::new(), line_unreliable: false, scroll_remainder: 0. });
+        self.panes.insert(
+          id,
+          Pane {
+            session: Rc::new(session),
+            title,
+            directory: pane_directory,
+            content_bounds: Rc::new(std::cell::Cell::new(None)),
+            line: String::new(),
+            line_unreliable: false,
+            scroll_remainder: 0.,
+          },
+        );
         Some(id)
       }
       Err(error) => {

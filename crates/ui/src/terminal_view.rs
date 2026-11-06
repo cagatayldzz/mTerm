@@ -15,11 +15,10 @@ use gpui_kit::{
 };
 use mterm_storage::FontChoice;
 use mterm_terminal::{Palette, Rgb, Snapshot};
+use std::path::{Path, PathBuf};
 use unicode_width::UnicodeWidthChar as _;
 
 const FONT_FAMILY: &str = "Menlo";
-const FONT_SIZE: Pixels = px(13.);
-const LINE_HEIGHT: Pixels = px(17.);
 const PADDING: Pixels = px(12.);
 const DIVIDER_WIDTH: Pixels = px(1.);
 const PANE_HEADER_HEIGHT: Pixels = px(28.);
@@ -49,9 +48,34 @@ fn color(rgb: Rgb) -> Hsla {
   gpui_kit::rgb(rgb.hex()).into()
 }
 
+fn cell_at(bounds: Bounds<Pixels>, position: Point<Pixels>, cell_width: f32, line_height: Pixels) -> Option<(usize, usize)> {
+  let x = f32::from(position.x - bounds.origin.x - PADDING);
+  let y = f32::from(position.y - bounds.origin.y - PADDING);
+  (bounds.contains(&position) && x >= 0. && y >= 0.).then(|| ((y / f32::from(line_height)).floor() as usize, (x / cell_width).floor() as usize))
+}
+
+fn openable_url(target: &str, directory: Option<&Path>) -> Option<String> {
+  if target.starts_with("https://") || target.starts_with("http://") {
+    return Some(target.to_owned());
+  }
+  let path = if let Some(rest) = target.strip_prefix("~/") {
+    PathBuf::from(std::env::var_os("HOME")?).join(rest)
+  } else if Path::new(target).is_absolute() {
+    PathBuf::from(target)
+  } else {
+    directory?.join(target)
+  };
+  if !path.exists() {
+    return None;
+  }
+  url::Url::from_file_path(path).ok().map(Into::into)
+}
+
 /// What every pane in a frame shares.
 struct Metrics {
   font: Font,
+  font_size: Pixels,
+  line_height: Pixels,
   cell_width: Pixels,
   fixed_cells: bool,
   palette: Palette,
@@ -67,6 +91,8 @@ impl Workspace {
     };
     let (root, focused) = (tab.root.clone(), tab.focused);
     let choice = self.model.read(cx).preferences.font;
+    let font_size = px(self.model.read(cx).preferences.terminal_font_size as f32);
+    let line_height = px(self.model.read(cx).preferences.terminal_line_height as f32);
     let family = match choice {
       FontChoice::Default => FONT_FAMILY,
       FontChoice::Geist => "Geist Mono",
@@ -76,18 +102,18 @@ impl Workspace {
     let fixed_cells = choice == FontChoice::Inter;
     let text_system = window.text_system();
     let font_id = text_system.resolve_font(&font);
-    let mut cell_width = text_system.advance(font_id, FONT_SIZE, 'm').map(|size| size.width).unwrap_or(px(7.8));
+    let mut cell_width = text_system.advance(font_id, font_size, 'm').map(|size| size.width).unwrap_or(font_size * 0.6);
     if fixed_cells {
       let bold_id = text_system.resolve_font(&Font { weight: FontWeight::BOLD, ..font.clone() });
       for id in [font_id, bold_id] {
         for character in ['m', 'W'] {
-          if let Ok(advance) = text_system.advance(id, FONT_SIZE, character) {
+          if let Ok(advance) = text_system.advance(id, font_size, character) {
             cell_width = cell_width.max(advance.width);
           }
         }
       }
     }
-    let metrics = Metrics { font, cell_width, fixed_cells, palette };
+    let metrics = Metrics { font, font_size, line_height, cell_width, fixed_cells, palette };
     let split = root.leaves().len() > 1;
     // Panes are placed at explicit rectangles: flex percentages do not resolve reliably for nested splits.
     let sidebar = px(0.);
@@ -97,7 +123,7 @@ impl Workspace {
     let mut dividers = Vec::new();
     place(&root, area, &mut panes, &mut dividers, &mut Vec::new(), sidebar);
     let border = cx.theme().sidebar_border;
-    let panes: Vec<_> = panes.into_iter().map(|(id, bounds)| self.render_pane(id, bounds, id == focused, split, &metrics, cx)).collect();
+    let panes: Vec<_> = panes.into_iter().map(|(id, bounds)| self.render_pane(id, bounds, id == focused, split, &metrics, window, cx)).collect();
     div()
       .flex_1()
       .min_h_0()
@@ -144,16 +170,46 @@ impl Workspace {
       .into_any_element()
   }
 
-  fn render_pane(&self, id: PaneId, bounds: Bounds<Pixels>, focused: bool, split: bool, metrics: &Metrics, cx: &mut Context<Self>) -> AnyElement {
+  fn render_pane(
+    &self,
+    id: PaneId,
+    bounds: Bounds<Pixels>,
+    focused: bool,
+    split: bool,
+    metrics: &Metrics,
+    window: &Window,
+    cx: &mut Context<Self>,
+  ) -> AnyElement {
     let Some(pane) = self.panes.get(&id) else { return div().into_any_element() };
     pane.session.set_palette(metrics.palette.clone());
     let snapshot = pane.session.snapshot(&metrics.palette);
     let session = pane.session.clone();
     let cell_width = f32::from(metrics.cell_width);
+    let line_height = metrics.line_height;
     let background = color(metrics.palette.background);
     let action_context = self.focus_handle.clone();
     let header_height = if split { PANE_HEADER_HEIGHT } else { px(0.) };
     let title = pane.title.clone();
+    let content_bounds = pane.content_bounds.clone();
+    let click_bounds = content_bounds.clone();
+    let click_palette = metrics.palette.clone();
+    let hovered = if window.modifiers().platform {
+      content_bounds.get().and_then(|bounds| cell_at(bounds, window.mouse_position(), cell_width, line_height)).and_then(|(line, column)| {
+        let target = snapshot.link_at(line, column)?;
+        let url = openable_url(&target, pane.directory.as_deref())?;
+        let mut start = column;
+        let mut end = column + 1;
+        while start > 0 && snapshot.link_at(line, start - 1).as_deref() == Some(&target) {
+          start -= 1;
+        }
+        while end < snapshot.columns && snapshot.link_at(line, end).as_deref() == Some(&target) {
+          end += 1;
+        }
+        Some((line, start, end, url))
+      })
+    } else {
+      None
+    };
 
     div()
       .id(("pane", id))
@@ -164,7 +220,29 @@ impl Workspace {
       .h(bounds.size.height)
       .overflow_hidden()
       .bg(background)
-      .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| this.focus_pane(id, window, cx)))
+      .on_mouse_move(cx.listener(|_, _, window, cx| {
+        if window.modifiers().platform {
+          cx.notify();
+        }
+      }))
+      .on_modifiers_changed(cx.listener(|_, _, _, cx| cx.notify()))
+      .on_mouse_down(
+        MouseButton::Left,
+        cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+          this.focus_pane(id, window, cx);
+          if !event.modifiers.platform {
+            return;
+          }
+          let Some(bounds) = click_bounds.get() else { return };
+          let Some((line, column)) = cell_at(bounds, event.position, cell_width, line_height) else { return };
+          if let Some(url) = this.panes.get(&id).and_then(|pane| {
+            let link = pane.session.snapshot(&click_palette).link_at(line, column)?;
+            openable_url(&link, pane.directory.as_deref())
+          }) {
+            cx.open_url(&url);
+          }
+        }),
+      )
       .on_mouse_down(MouseButton::Right, cx.listener(move |this, _, window, cx| this.focus_pane(id, window, cx)))
       .on_drop(cx.listener(move |this, paths: &ExternalPaths, window, cx| {
         let paths = match mterm_storage::prepare_dropped_paths(paths.paths()) {
@@ -182,7 +260,7 @@ impl Workspace {
       }))
       .on_scroll(cx.listener(move |this, event: &ScrollEvent, _, cx| {
         let Some(pane) = this.panes.get_mut(&id) else { return };
-        pane.scroll_remainder += f32::from(event.delta.pixel_delta(LINE_HEIGHT).y) / f32::from(LINE_HEIGHT);
+        pane.scroll_remainder += f32::from(event.delta.pixel_delta(line_height).y) / f32::from(line_height);
         let lines = pane.scroll_remainder.trunc();
         if lines != 0. {
           pane.scroll_remainder -= lines;
@@ -194,8 +272,9 @@ impl Workspace {
       .child(
         canvas(
           move |bounds, window, _| {
+            content_bounds.set(Some(bounds));
             let columns = ((f32::from(bounds.size.width) - 2. * f32::from(PADDING)) / cell_width).floor().max(2.) as usize;
-            let lines = ((f32::from(bounds.size.height) - 2. * f32::from(PADDING)) / f32::from(LINE_HEIGHT)).floor().max(1.) as usize;
+            let lines = ((f32::from(bounds.size.height) - 2. * f32::from(PADDING)) / f32::from(line_height)).floor().max(1.) as usize;
             if session.resize(columns, lines) {
               window.refresh();
             }
@@ -208,6 +287,31 @@ impl Workspace {
         .right_0()
         .bottom_0(),
       )
+      .when_some(hovered, |this, (line, start, end, url)| {
+        this
+          .cursor_pointer()
+          .child(
+            div()
+              .absolute()
+              .left(PADDING + metrics.cell_width * start as f32)
+              .top(header_height + PADDING + line_height * (line + 1) as f32 - px(2.))
+              .w(metrics.cell_width * (end - start) as f32)
+              .h(px(1.))
+              .bg(gpui_kit::rgb(0x3b9fff)),
+          )
+          .child(
+            div()
+              .absolute()
+              .left(px(4.))
+              .bottom(px(4.))
+              .px_2()
+              .py_1()
+              .bg(cx.theme().popover)
+              .text_color(cx.theme().popover_foreground)
+              .text_size(px(11.))
+              .child(url),
+          )
+      })
       .child(
         // Out of the flow, so a pane's size comes only from the space layout gives it.
         div()
@@ -218,13 +322,13 @@ impl Workspace {
           .bottom_0()
           .overflow_hidden()
           .p(PADDING)
-          .text_size(FONT_SIZE)
+          .text_size(metrics.font_size)
           .font_family(metrics.font.family.clone())
           .text_color(color(metrics.palette.foreground))
           .child(if metrics.fixed_cells {
-            fixed_cell_rows(&snapshot, &metrics.font, metrics.cell_width).into_any_element()
+            fixed_cell_rows(&snapshot, &metrics.font, metrics.cell_width, line_height).into_any_element()
           } else {
-            rows(&snapshot, &metrics.font).into_any_element()
+            rows(&snapshot, &metrics.font, line_height).into_any_element()
           }),
       )
       // Panes other than the focused one sit under a lighter veil of the same kind.
@@ -338,7 +442,7 @@ fn place(
   }
 }
 
-fn rows(snapshot: &Snapshot, base: &Font) -> impl IntoElement {
+fn rows(snapshot: &Snapshot, base: &Font, line_height: Pixels) -> impl IntoElement {
   let bold = Font { weight: FontWeight::BOLD, ..base.clone() };
   let italic = Font { style: FontStyle::Italic, ..base.clone() };
   let bold_italic = Font { weight: FontWeight::BOLD, style: FontStyle::Italic, ..base.clone() };
@@ -364,7 +468,7 @@ fn rows(snapshot: &Snapshot, base: &Font) -> impl IntoElement {
     }
     div()
       .id(("line", index))
-      .h(LINE_HEIGHT)
+      .h(line_height)
       .w_full()
       .flex_shrink_0()
       .overflow_hidden()
@@ -375,7 +479,7 @@ fn rows(snapshot: &Snapshot, base: &Font) -> impl IntoElement {
 }
 
 /// Draws proportional fonts in terminal cells so columns and cursor positions stay aligned.
-fn fixed_cell_rows(snapshot: &Snapshot, base: &Font, cell_width: Pixels) -> impl IntoElement {
+fn fixed_cell_rows(snapshot: &Snapshot, base: &Font, cell_width: Pixels, line_height: Pixels) -> impl IntoElement {
   let bold = Font { weight: FontWeight::BOLD, ..base.clone() };
   let italic = Font { style: FontStyle::Italic, ..base.clone() };
   let bold_italic = Font { weight: FontWeight::BOLD, style: FontStyle::Italic, ..base.clone() };
@@ -424,7 +528,7 @@ fn fixed_cell_rows(snapshot: &Snapshot, base: &Font, cell_width: Pixels) -> impl
         );
       }
     }
-    div().id(("line", index)).h(LINE_HEIGHT).w_full().flex().flex_shrink_0().overflow_hidden().children(cells)
+    div().id(("line", index)).h(line_height).w_full().flex().flex_shrink_0().overflow_hidden().children(cells)
   });
   div().w_full().children(lines)
 }

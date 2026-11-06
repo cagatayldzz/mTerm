@@ -85,11 +85,20 @@ pub struct Preferences {
   pub check_updates: bool,
   pub theme: ThemeChoice,
   pub font: FontChoice,
+  pub terminal_font_size: u8,
+  pub terminal_line_height: u8,
 }
 
 impl Default for Preferences {
   fn default() -> Self {
-    Self { sidebar_open: true, check_updates: true, theme: ThemeChoice::System, font: FontChoice::Default }
+    Self {
+      sidebar_open: true,
+      check_updates: true,
+      theme: ThemeChoice::System,
+      font: FontChoice::Default,
+      terminal_font_size: 12,
+      terminal_line_height: 16,
+    }
   }
 }
 
@@ -108,9 +117,20 @@ impl Preferences {
         "check_updates" => preferences.check_updates = value.trim().parse().unwrap_or(preferences.check_updates),
         "theme" => preferences.theme = ThemeChoice::from_code(value),
         "font" => preferences.font = FontChoice::from_code(value),
+        "terminal_font_size" => {
+          if let Ok(size @ 9..=24) = value.trim().parse::<u8>() {
+            preferences.terminal_font_size = size;
+          }
+        }
+        "terminal_line_height" => {
+          if let Ok(height @ 12..=36) = value.trim().parse::<u8>() {
+            preferences.terminal_line_height = height;
+          }
+        }
         _ => {}
       }
     }
+    preferences.terminal_line_height = preferences.terminal_line_height.max(preferences.terminal_font_size);
     preferences
   }
 
@@ -120,7 +140,15 @@ impl Preferences {
     }
     fs::write(
       path,
-      format!("sidebar_open={}\ncheck_updates={}\ntheme={}\nfont={}\n", self.sidebar_open, self.check_updates, self.theme.code(), self.font.code()),
+      format!(
+        "sidebar_open={}\ncheck_updates={}\ntheme={}\nfont={}\nterminal_font_size={}\nterminal_line_height={}\n",
+        self.sidebar_open,
+        self.check_updates,
+        self.theme.code(),
+        self.font.code(),
+        self.terminal_font_size,
+        self.terminal_line_height
+      ),
     )
   }
 }

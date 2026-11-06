@@ -7,13 +7,21 @@ fn preferences_have_sensible_defaults() {
   assert!(preferences.sidebar_open);
   assert!(preferences.check_updates);
   assert_eq!(preferences.theme, ThemeChoice::System);
+  assert_eq!((preferences.terminal_font_size, preferences.terminal_line_height), (12, 16));
 }
 
 #[test]
 fn preferences_round_trip() {
   let dir = std::env::temp_dir().join(format!("mterm-prefs-{}", std::process::id()));
   let path = dir.join("preferences.txt");
-  let saved = Preferences { sidebar_open: false, check_updates: false, theme: ThemeChoice::SlateDark, font: FontChoice::Geist };
+  let saved = Preferences {
+    sidebar_open: false,
+    check_updates: false,
+    theme: ThemeChoice::SlateDark,
+    font: FontChoice::Geist,
+    terminal_font_size: 18,
+    terminal_line_height: 24,
+  };
   saved.save(&path).unwrap();
   assert_eq!(Preferences::load(&path), saved);
   std::fs::remove_dir_all(dir).unwrap();

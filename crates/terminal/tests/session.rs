@@ -48,6 +48,60 @@ fn program_output_reaches_the_snapshot() {
 }
 
 #[test]
+fn faint_text_blends_with_its_cell_background() {
+  let (session, receiver) = run("printf '\\033[2m59\\033[22m 60 \\033[41;2m61\\033[0m'");
+  wait_for_exit(&receiver);
+  wait_for_screen(&session, |snapshot| snapshot.text().contains("61"));
+  for palette in [Palette::light(), Palette::dark()] {
+    let snapshot = session.snapshot(&palette);
+    let row = &snapshot.lines[0];
+    let faint = row.iter().find(|span| span.text.contains("59")).unwrap();
+    let normal = row.iter().find(|span| span.text.contains("60")).unwrap();
+    let colored = row.iter().find(|span| span.text.contains("61")).unwrap();
+    let blend = |a: u8, b: u8| ((a as u16 + b as u16) / 2) as u8;
+    assert_eq!(faint.foreground.r, blend(palette.foreground.r, palette.background.r));
+    assert_eq!(normal.foreground, palette.foreground);
+    assert_eq!(colored.foreground.r, blend(palette.foreground.r, palette.ansi[1].r));
+  }
+}
+
+#[test]
+fn ansi_colors_follow_the_theme_and_true_colors_remain_unchanged() {
+  let (session, receiver) = run("printf '\\033[31mred\\033[0m \\033[38;2;12;34;56;48;2;23;45;67mcustom\\033[0m'");
+  wait_for_exit(&receiver);
+  wait_for_screen(&session, |snapshot| snapshot.text().contains("custom"));
+  for palette in [Palette::light(), Palette::dark()] {
+    let snapshot = session.snapshot(&palette);
+    let red = snapshot.lines[0].iter().find(|span| span.text.contains("red")).unwrap();
+    let custom = snapshot.lines[0].iter().find(|span| span.text.contains("custom")).unwrap();
+    assert_eq!(red.foreground, palette.ansi[1]);
+    assert_eq!(custom.foreground, mterm_terminal::Rgb::new(12, 34, 56));
+    assert_eq!(custom.background, Some(mterm_terminal::Rgb::new(23, 45, 67)));
+  }
+}
+
+#[test]
+fn child_program_identifies_mterm_as_its_terminal() {
+  let (session, receiver) = run("printf '%s:%s' \"$TERM_PROGRAM\" \"$TERM_PROGRAM_VERSION\"");
+  wait_for_exit(&receiver);
+  wait_for_screen(&session, |snapshot| snapshot.text().contains("mTerm:"));
+  assert!(session.snapshot(&Palette::light()).text().contains("mTerm:"));
+}
+
+#[test]
+fn links_are_resolved_from_terminal_cells() {
+  let (session, receiver) =
+    run("printf '界 https://example.com/path).\\n\\033]8;;https://example.org/target\\007label\\033]8;;\\007\\n(/tmp/example)'");
+  wait_for_exit(&receiver);
+  wait_for_screen(&session, |snapshot| snapshot.text().contains("label"));
+  let snapshot = session.snapshot(&Palette::light());
+  assert_eq!(snapshot.link_at(0, 3).as_deref(), Some("https://example.com/path"));
+  assert_eq!(snapshot.link_at(0, 0), None);
+  assert_eq!(snapshot.link_at(1, 1).as_deref(), Some("https://example.org/target"));
+  assert_eq!(snapshot.link_at(2, 2).as_deref(), Some("/tmp/example"));
+}
+
+#[test]
 fn input_is_echoed_by_the_program() {
   let (session, receiver) = run("read line; printf \"got:%s\" \"$line\"");
   session.write(b"abc\r".to_vec());

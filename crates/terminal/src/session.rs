@@ -130,6 +130,8 @@ impl Session {
     let pty_options = Options {
       shell: options.program.map(|(program, args)| Shell::new(program, args)),
       working_directory: options.working_directory,
+      // Do not advertise the terminal that launched mTerm to child programs.
+      env: [("TERM_PROGRAM".into(), "mTerm".into()), ("TERM_PROGRAM_VERSION".into(), String::new())].into(),
       ..Options::default()
     };
     let pty = tty::new(&pty_options, window_size(columns, lines), 0)?;
@@ -216,6 +218,7 @@ impl Session {
     let content = term.renderable_content();
     let offset = content.display_offset;
     let mut rows = vec![vec![Glyph::blank(); columns]; lines];
+    let mut hyperlinks = vec![vec![None; columns]; lines];
     for row in &mut rows {
       for glyph in row.iter_mut() {
         glyph.foreground = palette.foreground;
@@ -228,6 +231,7 @@ impl Session {
         continue;
       }
       let cell = indexed.cell;
+      hyperlinks[line as usize][column] = cell.hyperlink().map(|link| link.uri().to_owned());
       if cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
         // The wide character before it already fills both cells.
         rows[line as usize][column] = Glyph { character: '\u{200b}', ..Glyph::blank() };
@@ -246,6 +250,9 @@ impl Session {
       if cell.flags.contains(Flags::INVERSE) {
         glyph.invert(palette);
       }
+      if cell.flags.contains(Flags::DIM) {
+        glyph.foreground = glyph.foreground.faint_on(glyph.background.unwrap_or(palette.background));
+      }
       rows[line as usize][column] = glyph;
     }
     let cursor = alacritty_terminal::term::point_to_viewport(offset, content.cursor.point)
@@ -256,7 +263,7 @@ impl Session {
       rows[cursor.line][cursor.column].invert(palette);
     }
     let lines = rows.iter().map(|row| spans(&row.iter().filter(|glyph| glyph.character != '\u{200b}').cloned().collect::<Vec<_>>())).collect();
-    Snapshot { lines, cursor, columns, scrolled: offset }
+    Snapshot { lines, cursor, columns, scrolled: offset, hyperlinks }
   }
 }
 

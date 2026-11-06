@@ -3755,6 +3755,7 @@ name = "mterm-terminal"
 version = "0.1.0"
 dependencies = [
  "alacritty_terminal",
+ "unicode-width",
 ]
 
 [[package]]
@@ -3768,6 +3769,7 @@ dependencies = [
  "mterm-terminal",
  "mterm-updater",
  "unicode-width",
+ "url",
 ]
 
 [[package]]
