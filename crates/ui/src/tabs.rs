@@ -5,7 +5,7 @@ use crate::{
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-  component::{h_flex, ActiveTheme, Icon, IconName, Sizable, TitleBar},
+  component::{h_flex, ActiveTheme, Icon, IconName, Sizable, ThemeColor, TitleBar},
   *,
 };
 
@@ -16,8 +16,8 @@ const BAND_INSET_CLEARING_LIGHTS: Pixels = px(88.);
 
 impl Workspace {
   /// The single top band over the page, level with the traffic lights. It holds the sidebar toggle,
-  /// the title (or the tabs, once there is more than one) and shares the terminal's background so
-  /// the two read as one surface.
+  /// the title (or the tabs, once there is more than one) and shares the terminal's background, with a hairline
+  /// below it.
   pub(crate) fn render_band(&self, cx: &mut Context<Self>) -> impl IntoElement {
     let theme = cx.theme().clone();
     let background = rgb(Self::palette(cx).background.hex());
@@ -49,17 +49,24 @@ impl Workspace {
         .into_any_element()
     };
 
-    TitleBar::new().h(TOOLBAR_HEIGHT).pl(if open { BAND_INSET } else { BAND_INSET_CLEARING_LIGHTS }).pr_3().bg(background).border_b_0().child(
-      h_flex()
-        .w_full()
-        .h_full()
-        .items_center()
-        .gap_2()
-        .child(sidebar_toggle(icon, tooltip))
-        .child(middle)
-        // Balances the toggle so a lone title stays centered.
-        .when(self.tabs.len() <= 1, |this| this.child(div().w(px(24.)))),
-    )
+    TitleBar::new()
+      .h(TOOLBAR_HEIGHT)
+      .pl(if open { BAND_INSET } else { BAND_INSET_CLEARING_LIGHTS })
+      .pr_3()
+      .bg(background)
+      .border_b_1()
+      .border_color(band_line(&theme))
+      .child(
+        h_flex()
+          .w_full()
+          .h_full()
+          .items_center()
+          .gap_2()
+          .child(sidebar_toggle(icon, tooltip))
+          .child(middle)
+          // Balances the toggle so a lone title stays centered.
+          .when(self.tabs.len() <= 1, |this| this.child(div().w(px(24.)))),
+      )
   }
 
   fn render_tabs(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
@@ -107,4 +114,9 @@ impl Workspace {
       })
       .collect()
   }
+}
+
+/// The hairline under the top band: the text color at low strength, so it shows on any background.
+pub(crate) fn band_line(theme: &ThemeColor) -> Hsla {
+  theme.foreground.opacity(0.14)
 }

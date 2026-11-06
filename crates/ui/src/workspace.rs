@@ -8,7 +8,7 @@ use gpui_kit::{
   component::{h_flex, v_flex, ActiveTheme, Theme},
   *,
 };
-use mterm_storage::History;
+use mterm_storage::{History, Preferences};
 use mterm_terminal::{encode_key, paste_bytes, Modifiers, Palette, Session, SessionEvent, SessionOptions};
 use std::{collections::HashMap, path::PathBuf, rc::Rc};
 
@@ -64,8 +64,16 @@ impl Workspace {
         Theme::sync_system_appearance(Some(window), cx);
         window.refresh();
       }),
-      // The dimming of inactive windows follows activation.
-      cx.observe_window_activation(window, |_, _, cx| cx.notify()),
+      // The dimming of inactive windows follows activation. Every window re-renders, since one
+      // gaining focus changes whether the others are dimmed.
+      cx.observe_window_activation(window, |_, _, cx| {
+        cx.notify();
+        cx.defer(|cx| {
+          for handle in cx.windows() {
+            let _ = handle.update(cx, |_, window, _| window.refresh());
+          }
+        });
+      }),
     ];
 
     let (events, mut receiver) = futures::channel::mpsc::unbounded();
@@ -96,7 +104,7 @@ impl Workspace {
       history: History::load(&History::default_path()),
       line: String::new(),
       line_unreliable: false,
-      sidebar_open: true,
+      sidebar_open: Preferences::load(&Preferences::default_path()).sidebar_open,
       focus_handle,
       _subscriptions: subscriptions,
     };
@@ -300,7 +308,23 @@ impl Workspace {
     cx.notify();
   }
 
-  pub(crate) fn clear_history(&mut self, cx: &mut Context<Self>) {
+  /// Asks before wiping the history. Cancel is the default button, so a stray Return keeps it.
+  pub(crate) fn confirm_clear_history(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    let count = self.history.entries().len();
+    if count == 0 {
+      return;
+    }
+    let detail = format!("This removes {count} saved command{}. It cannot be undone.", if count == 1 { "" } else { "s" });
+    let answer = window.prompt(PromptLevel::Warning, "Clear history?", Some(&detail), &["Cancel", "Clear History"], cx);
+    cx.spawn(async move |this, cx| {
+      if answer.await == Ok(1) {
+        let _ = this.update(cx, |this, cx| this.clear_history(cx));
+      }
+    })
+    .detach();
+  }
+
+  fn clear_history(&mut self, cx: &mut Context<Self>) {
     self.history.clear();
     self.save_history();
     cx.notify();
@@ -329,7 +353,9 @@ impl Render for Workspace {
     let theme = cx.theme().clone();
     let content = self.render_tab_content(window, cx);
     let page = v_flex().flex_1().min_w_0().h_full().child(self.render_band(cx)).child(content);
-    let inactive = !window.is_window_active();
+    // Only dim while another mTerm window has the focus. When the whole app goes to the background
+    // (another app in front), the windows keep their normal look.
+    let inactive = !window.is_window_active() && another_window_is_active(window, cx);
     h_flex()
       .id("workspace")
       .relative()
@@ -338,12 +364,16 @@ impl Render for Workspace {
       .on_key_down(cx.listener(Self::on_key_down))
       .on_action(cx.listener(|this, _: &ToggleSidebar, window, cx| {
         this.sidebar_open = !this.sidebar_open;
+        // The next launch, and the next window, start the way this one was left.
+        if let Err(error) = (Preferences { sidebar_open: this.sidebar_open }).save(&Preferences::default_path()) {
+          eprintln!("Could not save the preferences: {error}");
+        }
         this.focus_handle.focus(window, cx);
         cx.notify();
       }))
       .on_action(cx.listener(|this, _: &Paste, window, cx| this.paste(window, cx)))
       .on_action(cx.listener(|this, _: &ClearScreen, _, _| this.write(vec![0x0c])))
-      .on_action(cx.listener(|this, _: &ClearHistory, _, cx| this.clear_history(cx)))
+      .on_action(cx.listener(|this, _: &ClearHistory, window, cx| this.confirm_clear_history(window, cx)))
       .on_action(cx.listener(|this, _: &NewTab, window, cx| {
         this.new_tab();
         this.focus_handle.focus(window, cx);
@@ -373,4 +403,10 @@ impl Render for Workspace {
       // A soft black veil over every window that is not the one in use.
       .when(inactive, |this| this.child(div().absolute().top_0().left_0().size_full().bg(black().opacity(INACTIVE_VEIL))))
   }
+}
+
+/// Whether a different mTerm window is the one in use.
+fn another_window_is_active(window: &Window, cx: &mut App) -> bool {
+  let this = window.window_handle();
+  cx.windows().into_iter().filter(|handle| *handle != this).any(|handle| handle.update(cx, |_, other, _| other.is_window_active()).unwrap_or(false))
 }

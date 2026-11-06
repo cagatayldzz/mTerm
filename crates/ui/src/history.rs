@@ -1,4 +1,5 @@
 use crate::{
+  tabs::band_line,
   workspace::{Workspace, SIDEBAR_WIDTH, TOOLBAR_HEIGHT},
   ToggleSidebar,
 };
@@ -51,7 +52,7 @@ impl Workspace {
       .border_r_1()
       .border_color(theme.sidebar_border)
       // The sidebar runs to the top of the window; this band holds the traffic lights.
-      .child(TitleBar::new().h(TOOLBAR_HEIGHT).bg(transparent_black()).border_b_0())
+      .child(TitleBar::new().h(TOOLBAR_HEIGHT).bg(transparent_black()).border_b_1().border_color(band_line(&theme)))
       .child(
         h_flex()
           .h(px(28.))
@@ -60,7 +61,12 @@ impl Workspace {
           .justify_between()
           .child(div().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child("HISTORY"))
           .when(!empty, |this| {
-            this.child(icon_button("clear-history", IconName::Delete, "Clear history", cx.listener(|this, _, _, cx| this.clear_history(cx))))
+            this.child(icon_button(
+              "clear-history",
+              IconName::Delete,
+              "Clear history",
+              cx.listener(|this, _, window, cx| this.confirm_clear_history(window, cx)),
+            ))
           }),
       )
       .child(if empty {
