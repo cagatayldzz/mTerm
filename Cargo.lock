@@ -3737,6 +3737,7 @@ dependencies = [
 name = "mterm"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "gpui-kit",
  "mterm-storage",
  "mterm-ui",

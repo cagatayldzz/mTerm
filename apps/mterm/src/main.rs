@@ -2,18 +2,29 @@
 
 //! The mTerm application: windows, menus and application-level actions.
 
+use futures::StreamExt as _;
 use gpui_kit::{component::TitleBar, *};
-use mterm_storage::WindowSize;
+use mterm_storage::{directory_from_url, WindowSize};
 use mterm_ui::{
   Assets, ClearHistory, ClearScreen, ClosePane, Hide, HideOthers, Minimize, NewTab, NewWindow, NextTab, Paste, PreviousTab, Quit, ShowAll,
   SplitHorizontally, SplitVertically, ToggleSidebar, Workspace, Zoom, CONTEXT, TOOLBAR_HEIGHT,
 };
+use std::{path::PathBuf, time::Duration};
 
 /// How far a new window is offset from the one it opens next to.
 const CASCADE: f32 = 28.;
 
+/// How long to wait for a folder to arrive from the system before opening a plain window.
+const OPEN_URLS_GRACE: Duration = Duration::from_millis(250);
+
 fn main() {
-  gpui_kit::application().with_assets(Assets).run(|cx| {
+  // Folders handed over by `open -a mTerm <folder>`, Finder, or another app's "open in terminal".
+  let (url_sender, mut url_receiver) = futures::channel::mpsc::unbounded::<Vec<String>>();
+  let app = gpui_kit::application().with_assets(Assets);
+  app.on_open_urls(move |urls| {
+    let _ = url_sender.unbounded_send(urls);
+  });
+  app.run(move |cx| {
     gpui_kit::init(cx);
     cx.activate(true);
     bind_keys(cx);
@@ -22,7 +33,7 @@ fn main() {
     cx.on_action(|_: &Hide, cx| cx.hide());
     cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
     cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
-    cx.on_action(|_: &NewWindow, cx| open_window(cx));
+    cx.on_action(|_: &NewWindow, cx| open_window(None, cx));
     // Closing the last window quits.
     cx.on_window_closed(|cx, _| {
       if cx.windows().is_empty() {
@@ -38,11 +49,43 @@ fn main() {
     })
     .detach();
 
-    open_window(cx);
+    cx.spawn(async move |cx| {
+      while let Some(urls) = url_receiver.next().await {
+        cx.update(|cx| open_folders(&urls, cx));
+      }
+    })
+    .detach();
+
+    // A folder on the command line opens straight away; otherwise give the system a moment to
+    // hand one over before opening a plain window.
+    if let Some(folder) = std::env::args().nth(1).and_then(|argument| directory_from_url(&argument)) {
+      open_window(Some(folder), cx);
+    } else {
+      cx.spawn(async move |cx| {
+        cx.background_executor().timer(OPEN_URLS_GRACE).await;
+        cx.update(|cx| {
+          if cx.windows().is_empty() {
+            open_window(None, cx);
+          }
+        });
+      })
+      .detach();
+    }
   });
 }
 
-fn open_window(cx: &mut App) {
+fn open_folders(urls: &[String], cx: &mut App) {
+  let folders: Vec<_> = urls.iter().filter_map(|url| directory_from_url(url)).collect();
+  if folders.is_empty() {
+    open_window(None, cx);
+  }
+  for folder in folders {
+    open_window(Some(folder), cx);
+  }
+  cx.activate(true);
+}
+
+fn open_window(directory: Option<PathBuf>, cx: &mut App) {
   let saved_size = WindowSize::load(&WindowSize::default_path());
   let size = size(px(saved_size.width), px(saved_size.height));
   // A new window cascades from the active one; the first is centered.
@@ -64,7 +107,7 @@ fn open_window(cx: &mut App) {
       save_window_size(window);
       true
     });
-    cx.new(|cx| Workspace::new(window, cx))
+    cx.new(|cx| Workspace::new(directory.clone(), window, cx))
   })
   .expect("Failed to open the mTerm window");
 }

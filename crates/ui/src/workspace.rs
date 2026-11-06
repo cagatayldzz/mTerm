@@ -1,3 +1,4 @@
+use crate::history::sidebar_toggle;
 use crate::{
   layout::{Node, PaneId, Split},
   ClearHistory, ClearScreen, ClosePane, NewTab, NextTab, Paste, PreviousTab, SplitHorizontally, SplitVertically, ToggleSidebar,
@@ -5,17 +6,20 @@ use crate::{
 use futures::StreamExt as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-  component::{h_flex, v_flex, ActiveTheme, Theme, TitleBar},
+  component::{h_flex, v_flex, ActiveTheme, IconName, Theme, TitleBar},
   *,
 };
 use mterm_storage::History;
 use mterm_terminal::{encode_key, paste_bytes, Modifiers, Palette, Session, SessionEvent, SessionOptions};
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, path::PathBuf, rc::Rc};
 
 /// Height of the band that holds the traffic lights and the title.
 pub const TOOLBAR_HEIGHT: Pixels = px(44.);
 
 pub(crate) const SIDEBAR_WIDTH: Pixels = px(240.);
+
+/// Height of the sidebar header, and of the strip that keeps the toggle in place when the sidebar is closed.
+pub(crate) const HEADER_HEIGHT: Pixels = px(40.);
 
 /// The key context key bindings use to reach a window's workspace.
 pub const CONTEXT: &str = "Workspace";
@@ -39,6 +43,7 @@ pub struct Workspace {
   pub(crate) tabs: Vec<Tab>,
   pub(crate) active: usize,
   next_pane: PaneId,
+  directory: Option<PathBuf>,
   events: futures::channel::mpsc::UnboundedSender<(PaneId, SessionEvent)>,
   pub(crate) error: Option<String>,
   pub(crate) history: History,
@@ -52,7 +57,8 @@ pub struct Workspace {
 }
 
 impl Workspace {
-  pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+  /// `directory` is where shells start; `None` is the home folder.
+  pub fn new(directory: Option<PathBuf>, window: &mut Window, cx: &mut Context<Self>) -> Self {
     Theme::sync_system_appearance(Some(window), cx);
     let subscriptions = vec![cx.observe_window_appearance(window, |_, window, cx| {
       Theme::sync_system_appearance(Some(window), cx);
@@ -81,6 +87,7 @@ impl Workspace {
       tabs: Vec::new(),
       active: 0,
       next_pane: 0,
+      directory,
       events,
       error: None,
       history: History::load(&History::default_path()),
@@ -115,7 +122,7 @@ impl Workspace {
   fn spawn_pane(&mut self) -> Option<PaneId> {
     let id = self.next_pane;
     let sender = self.events.clone();
-    let options = SessionOptions { program: None, working_directory: std::env::var_os("HOME").map(Into::into) };
+    let options = SessionOptions { program: None, working_directory: self.directory.clone().or_else(|| std::env::var_os("HOME").map(Into::into)) };
     match Session::spawn(options, 80, 24, move |event| {
       let _ = sender.unbounded_send((id, event));
     }) {
@@ -313,6 +320,17 @@ impl Workspace {
     }
   }
 
+  fn render_toggle_strip(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    h_flex()
+      .w_full()
+      .h(HEADER_HEIGHT)
+      .flex_shrink_0()
+      .px_3()
+      .items_center()
+      .bg(rgb(Self::palette(cx).background.hex()))
+      .child(sidebar_toggle(IconName::PanelLeftOpen, "Show history (⌘B)"))
+  }
+
   fn toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
     let theme = cx.theme().clone();
     TitleBar::new().h(TOOLBAR_HEIGHT).bg(theme.background).child(
@@ -337,7 +355,15 @@ impl Render for Workspace {
   fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
     let theme = cx.theme().clone();
     let content = self.render_tab_content(window, cx);
-    let page = v_flex().flex_1().min_w_0().h_full().when(self.tabs.len() > 1, |this| this.child(self.render_tab_bar(cx))).child(content);
+    let many_tabs = self.tabs.len() > 1;
+    let page = v_flex()
+      .flex_1()
+      .min_w_0()
+      .h_full()
+      .when(many_tabs, |this| this.child(self.render_tab_bar(cx)))
+      // With the sidebar closed the toggle stays where it was; it shares the tab bar, or gets a strip of its own.
+      .when(!many_tabs && !self.sidebar_open, |this| this.child(self.render_toggle_strip(cx)))
+      .child(content);
     v_flex()
       .id("workspace")
       .key_context(CONTEXT)

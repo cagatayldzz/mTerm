@@ -1,5 +1,5 @@
 use crate::{
-  workspace::{Workspace, SIDEBAR_WIDTH},
+  workspace::{Workspace, HEADER_HEIGHT, SIDEBAR_WIDTH},
   ToggleSidebar,
 };
 use gpui_kit::{
@@ -51,7 +51,7 @@ impl Workspace {
       .border_color(theme.sidebar_border)
       .child(
         h_flex()
-          .h(px(40.))
+          .h(HEADER_HEIGHT)
           .px_3()
           .items_center()
           .justify_between()
@@ -81,7 +81,8 @@ pub(crate) fn icon_button(
 ) -> impl IntoElement {
   div()
     .id(id)
-    .size(px(30.))
+    .w(px(24.))
+    .h(px(30.))
     .flex()
     .items_center()
     .justify_center()

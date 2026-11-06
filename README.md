@@ -22,6 +22,24 @@ bun run build     # local release build → dist/mTerm.app
 bun run check     # formatting, clippy, and tests
 ```
 
+## Opening from other apps
+
+mTerm opens a window in any folder it is handed, so other apps can use it as their terminal:
+
+```sh
+open -a mTerm ~/Projects/app      # or: mTerm.app/Contents/MacOS/mTerm ~/Projects/app
+```
+
+Copy `dist/mTerm.app` to `/Applications` first. In GitHub Desktop, choose
+Settings → Integrations → Shell → **Configure Custom Shell…** and set:
+
+- Path: `/usr/bin/open`
+- Arguments: `-a mTerm %TARGET_PATH%`
+
+Apps with their own terminal list (such as the built-in Terminal / iTerm2 entries)
+only show terminals they know about; those need a custom command like the one above.
+Finder's **Open With** also lists mTerm for folders.
+
 ## Shortcuts
 
 | Shortcut | Action |

@@ -5,5 +5,5 @@ mod paths;
 mod window_size;
 
 pub use history::History;
-pub use paths::data_dir;
+pub use paths::{data_dir, directory_from_url};
 pub use window_size::WindowSize;

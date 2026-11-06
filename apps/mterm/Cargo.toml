@@ -8,7 +8,7 @@ description = "mTerm macOS application"
 default-run = "mTerm"
 
 [package.metadata.layers]
-dependencies = ["mterm-ui", "mterm-storage", "gpui-kit"]
+dependencies = ["mterm-ui", "mterm-storage", "futures", "gpui-kit"]
 
 [lints]
 workspace = true
@@ -16,6 +16,7 @@ workspace = true
 [dependencies]
 mterm-ui.workspace = true
 mterm-storage.workspace = true
+futures.workspace = true
 gpui-kit.workspace = true
 
 [[bin]]

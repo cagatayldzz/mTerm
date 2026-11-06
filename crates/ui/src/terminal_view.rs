@@ -1,12 +1,12 @@
 use crate::{
-  history::sidebar_toggle,
-  layout::{Node, PaneId},
-  workspace::Workspace,
+  layout::{Node, PaneId, Split},
+  tabs::TAB_BAR_HEIGHT,
+  workspace::{Workspace, HEADER_HEIGHT, SIDEBAR_WIDTH, TOOLBAR_HEIGHT},
   ClearScreen, ClosePane, NewTab, NewWindow, Paste, SplitHorizontally, SplitVertically,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-  component::{h_flex, menu::ContextMenuExt as _, v_flex, ActiveTheme, IconName},
+  component::{menu::ContextMenuExt as _, ActiveTheme},
   *,
 };
 use mterm_terminal::{Palette, Rgb, Snapshot};
@@ -41,33 +41,36 @@ impl Workspace {
     let cell_width = window.text_system().advance(font_id, FONT_SIZE, 'm').map(|size| size.width).unwrap_or(px(7.8));
     let metrics = Metrics { font, cell_width, palette };
     let split = root.leaves().len() > 1;
-    let toggle =
-      (!self.sidebar_open).then(|| div().absolute().top(px(6.)).right(px(8.)).child(sidebar_toggle(IconName::PanelLeftOpen, "Show history (⌘B)")));
+    // Panes are placed at explicit rectangles: flex percentages do not resolve reliably for nested splits.
+    let sidebar = if self.sidebar_open { SIDEBAR_WIDTH } else { px(0.) };
+    let tab_bar = if self.tabs.len() > 1 {
+      TAB_BAR_HEIGHT
+    } else if self.sidebar_open {
+      px(0.)
+    } else {
+      HEADER_HEIGHT
+    };
+    let viewport = window.viewport_size();
+    let area = Bounds::new(point(px(0.), px(0.)), size(viewport.width - sidebar, viewport.height - TOOLBAR_HEIGHT - tab_bar));
+    let mut panes = Vec::new();
+    let mut dividers = Vec::new();
+    place(&root, area, &mut panes, &mut dividers);
+    let border = cx.theme().border;
+    let panes: Vec<_> = panes.into_iter().map(|(id, bounds)| self.render_pane(id, bounds, id == focused, split, &metrics, cx)).collect();
     div()
       .flex_1()
       .min_h_0()
       .relative()
-      .child(self.render_node(&root, focused, split, &metrics, cx))
-      // With the sidebar closed, the toggle floats in the corner of the page.
-      .children(toggle)
+      .children(panes)
+      .children(
+        dividers
+          .into_iter()
+          .map(move |bounds| div().absolute().left(bounds.origin.x).top(bounds.origin.y).w(bounds.size.width).h(bounds.size.height).bg(border)),
+      )
       .into_any_element()
   }
 
-  fn render_node(&self, node: &Node, focused: PaneId, split: bool, metrics: &Metrics, cx: &mut Context<Self>) -> AnyElement {
-    match node {
-      Node::Leaf(id) => self.render_pane(*id, *id == focused, split, metrics, cx),
-      Node::Split { split: direction, first, second } => {
-        let divider = cx.theme().border;
-        let side_by_side = *direction == crate::layout::Split::Vertically;
-        let first = div().flex_1().min_w_0().min_h_0().child(self.render_node(first, focused, split, metrics, cx));
-        let second = div().flex_1().min_w_0().min_h_0().child(self.render_node(second, focused, split, metrics, cx));
-        let line = if side_by_side { div().w(px(1.)).h_full().bg(divider) } else { div().h(px(1.)).w_full().bg(divider) };
-        if side_by_side { h_flex() } else { v_flex() }.size_full().child(first).child(line).child(second).into_any_element()
-      }
-    }
-  }
-
-  fn render_pane(&self, id: PaneId, focused: bool, split: bool, metrics: &Metrics, cx: &mut Context<Self>) -> AnyElement {
+  fn render_pane(&self, id: PaneId, bounds: Bounds<Pixels>, focused: bool, split: bool, metrics: &Metrics, cx: &mut Context<Self>) -> AnyElement {
     let Some(pane) = self.panes.get(&id) else { return div().into_any_element() };
     let snapshot = pane.session.snapshot(&metrics.palette);
     let session = pane.session.clone();
@@ -77,8 +80,11 @@ impl Workspace {
 
     div()
       .id(("pane", id))
-      .relative()
-      .size_full()
+      .absolute()
+      .left(bounds.origin.x)
+      .top(bounds.origin.y)
+      .w(bounds.size.width)
+      .h(bounds.size.height)
       .overflow_hidden()
       .bg(background)
       .when(split && !focused, |this| this.opacity(0.7))
@@ -110,8 +116,13 @@ impl Workspace {
         .size_full(),
       )
       .child(
+        // Out of the flow, so a pane's size comes only from the space layout gives it.
         div()
+          .absolute()
+          .top_0()
+          .left_0()
           .size_full()
+          .overflow_hidden()
           .p(PADDING)
           .text_size(FONT_SIZE)
           .font_family(FONT_FAMILY)
@@ -133,6 +144,35 @@ impl Workspace {
           .menu("Close", Box::new(ClosePane))
       })
       .into_any_element()
+  }
+}
+
+/// Divides `area` among the panes of `node`, with a one pixel divider between halves.
+fn place(node: &Node, area: Bounds<Pixels>, panes: &mut Vec<(PaneId, Bounds<Pixels>)>, dividers: &mut Vec<Bounds<Pixels>>) {
+  match node {
+    Node::Leaf(id) => panes.push((*id, area)),
+    Node::Split { split, first, second } => {
+      let line = px(1.);
+      let (origin, extent) = (area.origin, area.size);
+      let (first_area, divider, second_area) = if *split == Split::Vertically {
+        let width = ((extent.width - line) / 2.).floor();
+        (
+          Bounds::new(origin, size(width, extent.height)),
+          Bounds::new(point(origin.x + width, origin.y), size(line, extent.height)),
+          Bounds::new(point(origin.x + width + line, origin.y), size(extent.width - width - line, extent.height)),
+        )
+      } else {
+        let height = ((extent.height - line) / 2.).floor();
+        (
+          Bounds::new(origin, size(extent.width, height)),
+          Bounds::new(point(origin.x, origin.y + height), size(extent.width, line)),
+          Bounds::new(point(origin.x, origin.y + height + line), size(extent.width, extent.height - height - line)),
+        )
+      };
+      dividers.push(divider);
+      place(first, first_area, panes, dividers);
+      place(second, second_area, panes, dividers);
+    }
   }
 }
 

@@ -1,9 +1,16 @@
-use crate::{history::icon_button, workspace::Workspace, NewTab};
+use crate::{
+  history::{icon_button, sidebar_toggle},
+  workspace::Workspace,
+  NewTab,
+};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
   component::{h_flex, ActiveTheme, Icon, IconName, Sizable},
   *,
 };
+
+/// Height of the tab strip.
+pub(crate) const TAB_BAR_HEIGHT: Pixels = px(36.);
 
 impl Workspace {
   /// The strip of tabs, shown from the second tab on.
@@ -51,11 +58,12 @@ impl Workspace {
       .collect();
     h_flex()
       .w_full()
-      .h(px(36.))
+      .h(TAB_BAR_HEIGHT)
       .flex_shrink_0()
       .px_2()
       .gap_1()
       .items_center()
+      .when(!self.sidebar_open, |this| this.child(sidebar_toggle(IconName::PanelLeftOpen, "Show history (⌘B)")))
       .bg(theme.secondary)
       .border_b_1()
       .border_color(theme.border)
