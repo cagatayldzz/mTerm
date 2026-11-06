@@ -6,8 +6,8 @@ use futures::StreamExt as _;
 use gpui_kit::{component::TitleBar, *};
 use mterm_storage::{directory_from_url, WindowSize};
 use mterm_ui::{
-  Assets, ClearHistory, ClearScreen, ClosePane, Hide, HideOthers, Minimize, NewTab, NewWindow, NextTab, Paste, PreviousTab, Quit, ShowAll,
-  SplitHorizontally, SplitVertically, ToggleSidebar, Workspace, Zoom, CONTEXT, TOOLBAR_HEIGHT,
+  Assets, CheckForUpdates, ClearHistory, ClearScreen, ClosePane, Hide, HideOthers, Minimize, NewTab, NewWindow, NextTab, OpenSettings, Paste,
+  PreviousTab, Quit, ShowAll, SplitHorizontally, SplitVertically, ToggleSidebar, Workspace, Zoom, CONTEXT, TOOLBAR_HEIGHT,
 };
 use std::{path::PathBuf, time::Duration};
 
@@ -26,6 +26,7 @@ fn main() {
   });
   app.run(move |cx| {
     gpui_kit::init(cx);
+    mterm_ui::init(cx);
     cx.activate(true);
     bind_keys(cx);
 
@@ -127,6 +128,7 @@ fn bind_keys(cx: &mut App) {
     KeyBinding::new("alt-cmd-h", HideOthers, None),
     KeyBinding::new("cmd-m", Minimize, None),
     KeyBinding::new("cmd-n", NewWindow, None),
+    KeyBinding::new("cmd-,", OpenSettings, None),
     KeyBinding::new("cmd-t", NewTab, Some(CONTEXT)),
     KeyBinding::new("cmd-d", SplitVertically, Some(CONTEXT)),
     KeyBinding::new("shift-cmd-d", SplitHorizontally, Some(CONTEXT)),
@@ -153,6 +155,9 @@ fn bind_keys(cx: &mut App) {
 fn set_menus(cx: &mut App) {
   cx.set_menus([
     Menu::new("mTerm").items([
+      MenuItem::action("Settings…", OpenSettings),
+      MenuItem::action("Check for Updates…", CheckForUpdates),
+      MenuItem::separator(),
       MenuItem::action("Hide mTerm", Hide),
       MenuItem::action("Hide Others", HideOthers),
       MenuItem::action("Show All", ShowAll),

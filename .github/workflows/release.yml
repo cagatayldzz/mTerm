@@ -42,9 +42,9 @@ jobs:
         with:
           shared-key: core
       - name: Lint core packages
-        run: cargo clippy --locked -p mterm-terminal -p mterm-storage --all-targets -- -D warnings
+        run: cargo clippy --locked -p mterm-terminal -p mterm-storage -p mterm-version -p mterm-updater --all-targets -- -D warnings
       - name: Test core packages
-        run: cargo test --locked -p mterm-terminal -p mterm-storage
+        run: cargo test --locked -p mterm-terminal -p mterm-storage -p mterm-version -p mterm-updater
 
   prepare:
     name: 2 · Prepare version

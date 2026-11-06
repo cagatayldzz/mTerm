@@ -8,15 +8,19 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 license = "UNLICENSED"
+repository = "https://github.com/cagatayldzz/mTerm"
 
 [workspace.dependencies]
 mterm-terminal = { path = "crates/terminal" }
 mterm-storage = { path = "crates/storage" }
 mterm-ui = { path = "crates/ui" }
+mterm-version = { path = "crates/version" }
+mterm-updater = { path = "crates/updater" }
 alacritty_terminal = "0.26.0"
 gpui-kit = "0.8.0"
 gpui-kit-assets = "0.8.0"
 futures = "0.3"
+serde_json = "1"
 
 [workspace.lints.rust]
 unsafe_code = "deny"

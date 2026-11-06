@@ -16,7 +16,7 @@ methods, structs, enums, traits, and implementations.
 # Workspace layout
 
 The Cargo workspace has `apps/*` (executables) and `crates/*` (libraries). The
-dependency direction is `apps/mterm` → `ui` → `terminal` and `storage`.
+dependency direction is `apps/mterm` → `ui` → `terminal`, `storage` and `updater` (→ `version`).
 `terminal` and `storage` never depend on the interface. Update
 `docs/architecture.md` when the architecture changes. Keep `unsafe` out of the
 workspace (`unsafe_code = "deny"`).

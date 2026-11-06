@@ -26,7 +26,9 @@ scripts/app.sh --check                   # cargo fmt --check, clippy -D warnings
 | `mterm` | app | the macOS application (binary `mTerm`) |
 | `mterm-ui` | library | views built with GPUI Kit |
 | `mterm-terminal` | library | PTY, emulation, key encoding |
-| `mterm-storage` | library | window size and command history |
+| `mterm-storage` | library | window size, command history and preferences |
+| `mterm-version` | library | version comparison for update checks |
+| `mterm-updater` | library | self-update from GitHub releases |
 
 ## Formatting
 
@@ -41,4 +43,4 @@ use temporary directories; `MTERM_DATA_DIR` overrides the location.
 
 ## Local data
 
-`~/Library/Application Support/mTerm/` holds `window-size.txt` and `history.txt`.
+`~/Library/Application Support/mTerm/` holds `window-size.txt`, `history.txt` and `preferences.txt`.

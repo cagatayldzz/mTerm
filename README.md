@@ -49,6 +49,7 @@ Finder's **Open With** also lists mTerm for folders.
 | `⌘W` | Close the pane (its tab and window with the last one) |
 | `⇧⌘[` / `⇧⌘]` | Previous / next tab |
 | `⌘B` | Show or hide the history sidebar |
+| `⌘,` | Settings (in the window; `Esc` closes) |
 | `⌘V` | Paste |
 | `⌘K` | Clear the screen |
 | `⌥←` / `⌥→` | Move by word |
@@ -60,6 +61,13 @@ Finder's **Open With** also lists mTerm for folders.
 - `crates/ui` — the sidebar and terminal views
 - `crates/terminal` — PTY, terminal emulation, and key encoding
 - `crates/storage` — window size and command history
+
+## Updates
+
+Settings → Updates checks the latest GitHub release (on launch, unless turned off) and
+installs it when you choose **Download & Install**. The download is verified against its
+checksum and code signature before **Restart to Update** swaps the app. Release builds
+only; development builds never update.
 
 ## Documentation
 

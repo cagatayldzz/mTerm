@@ -28,7 +28,7 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-  # The terminal and storage crates are plain Rust and build on Linux in seconds,
+  # The terminal, storage, version and updater crates are plain Rust and build on Linux in seconds,
   # without waiting for a macOS runner. The GPUI crates are checked by the release workflow.
   core:
     runs-on: ubuntu-24.04
@@ -41,6 +41,6 @@ jobs:
           shared-key: core
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Lint
-        run: cargo clippy --locked -p mterm-terminal -p mterm-storage --all-targets -- -D warnings
+        run: cargo clippy --locked -p mterm-terminal -p mterm-storage -p mterm-version -p mterm-updater --all-targets -- -D warnings
       - name: Test
-        run: cargo test --locked -p mterm-terminal -p mterm-storage
+        run: cargo test --locked -p mterm-terminal -p mterm-storage -p mterm-version -p mterm-updater

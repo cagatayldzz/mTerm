@@ -1,14 +1,20 @@
 use crate::{
   layout::{Node, PaneId, Split},
-  ClearHistory, ClearScreen, ClosePane, NewTab, NextTab, Paste, PreviousTab, SplitHorizontally, SplitVertically, ToggleSidebar,
+  settings::{render_settings, SettingsPage},
+  CheckForUpdates, ClearHistory, ClearScreen, ClosePane, NewTab, NextTab, OpenSettings, Paste, PreviousTab, SplitHorizontally, SplitVertically,
+  ToggleSidebar,
+};
+use crate::{
+  model::{AppGlobal, AppModel, AppUpdate},
+  theme::apply_theme,
 };
 use futures::StreamExt as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-  component::{h_flex, v_flex, ActiveTheme, Theme},
+  component::{h_flex, v_flex, ActiveTheme, WindowExt as _},
   *,
 };
-use mterm_storage::{History, Preferences};
+use mterm_storage::{History, ThemeChoice};
 use mterm_terminal::{encode_key, paste_bytes, Modifiers, Palette, Session, SessionEvent, SessionOptions};
 use std::{collections::HashMap, path::PathBuf, rc::Rc};
 
@@ -51,6 +57,11 @@ pub struct Workspace {
   /// Set when the line was edited in a way that cannot be followed (history recall, cursor moves).
   line_unreliable: bool,
   pub(crate) sidebar_open: bool,
+  /// The Settings page shown in place of the terminal, when open.
+  pub(crate) settings: Option<SettingsPage>,
+  settings_epoch: u64,
+  pub(crate) model: Entity<AppModel>,
+  applied_theme: ThemeChoice,
   pub(crate) focus_handle: FocusHandle,
   _subscriptions: Vec<Subscription>,
 }
@@ -58,12 +69,11 @@ pub struct Workspace {
 impl Workspace {
   /// `directory` is where shells start; `None` is the home folder.
   pub fn new(directory: Option<PathBuf>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-    Theme::sync_system_appearance(Some(window), cx);
+    let model = cx.global::<AppGlobal>().0.clone();
+    let applied_theme = model.read(cx).theme();
+    apply_theme(applied_theme, window, cx);
     let subscriptions = vec![
-      cx.observe_window_appearance(window, |_, window, cx| {
-        Theme::sync_system_appearance(Some(window), cx);
-        window.refresh();
-      }),
+      cx.observe_window_appearance(window, |this, window, cx| apply_theme(this.applied_theme, window, cx)),
       // The dimming of inactive windows follows activation. Every window re-renders, since one
       // gaining focus changes whether the others are dimmed.
       cx.observe_window_activation(window, |_, _, cx| {
@@ -73,6 +83,16 @@ impl Workspace {
             let _ = handle.update(cx, |_, window, _| window.refresh());
           }
         });
+      }),
+      // Settings changes (the theme) and update news reach every window.
+      cx.observe_in(&model, window, |this, model, window, cx| {
+        let theme = model.read(cx).theme();
+        if theme != this.applied_theme {
+          this.applied_theme = theme;
+          apply_theme(theme, window, cx);
+        }
+        this.announce_update(window, cx);
+        cx.notify();
       }),
     ];
 
@@ -104,12 +124,52 @@ impl Workspace {
       history: History::load(&History::default_path()),
       line: String::new(),
       line_unreliable: false,
-      sidebar_open: Preferences::load(&Preferences::default_path()).sidebar_open,
+      sidebar_open: model.read(cx).preferences.sidebar_open,
+      settings: None,
+      settings_epoch: 0,
+      model,
+      applied_theme,
       focus_handle,
       _subscriptions: subscriptions,
     };
     workspace.new_tab();
     workspace
+  }
+
+  /// Shows Settings in place of the terminal, or closes them when already open.
+  pub(crate) fn toggle_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    if self.settings.is_some() {
+      self.close_settings(window, cx);
+    } else {
+      self.open_settings(SettingsPage::General, window, cx);
+    }
+  }
+
+  pub(crate) fn open_settings(&mut self, page: SettingsPage, window: &mut Window, cx: &mut Context<Self>) {
+    self.settings = Some(page);
+    self.settings_epoch += 1;
+    self.focus_handle.focus(window, cx);
+    cx.notify();
+  }
+
+  pub(crate) fn close_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    self.settings = None;
+    self.focus_handle.focus(window, cx);
+    cx.notify();
+  }
+
+  /// Shows a notification, in one window, for each newly found release.
+  fn announce_update(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    let AppUpdate::Available(release) = self.model.read(cx).update.clone() else { return };
+    if self.model.read(cx).announced.as_deref() == Some(release.version.as_str()) {
+      return;
+    }
+    self.model.update(cx, |model, _| model.announced = Some(release.version.clone()));
+    window.push_notification(
+      component::notification::Notification::info(format!("mTerm {} is available. Open Settings → Updates to install it.", release.version))
+        .title("Update available"),
+      cx,
+    );
   }
 
   fn handle_events(&mut self, events: Vec<(PaneId, SessionEvent)>, window: &mut Window, cx: &mut Context<Self>) {
@@ -238,12 +298,23 @@ impl Workspace {
   // Input and history
 
   fn write(&self, bytes: Vec<u8>) {
+    if self.settings.is_some() {
+      return;
+    }
     if let Some(pane) = self.focused_pane() {
       pane.session.write(bytes);
     }
   }
 
-  fn on_key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+  fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+    // Settings own the keyboard while they are open; Escape returns to the terminal.
+    if self.settings.is_some() {
+      if event.keystroke.key == "escape" {
+        self.close_settings(window, cx);
+        cx.stop_propagation();
+      }
+      return;
+    }
     let Some(pane) = self.focused_pane() else { return };
     let keystroke = &event.keystroke;
     let modifiers = Modifiers {
@@ -331,6 +402,9 @@ impl Workspace {
   }
 
   fn paste(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    if self.settings.is_some() {
+      return;
+    }
     if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
       if text.contains('\n') {
         self.line_unreliable = true;
@@ -351,7 +425,10 @@ impl Workspace {
 impl Render for Workspace {
   fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
     let theme = cx.theme().clone();
-    let content = self.render_tab_content(window, cx);
+    let content = match self.settings {
+      Some(page) => render_settings(&self.model, page, self.settings_epoch, cx).into_any_element(),
+      None => self.render_tab_content(window, cx),
+    };
     let page = v_flex().flex_1().min_w_0().h_full().child(self.render_band(cx)).child(content);
     // Only dim while another mTerm window has the focus. When the whole app goes to the background
     // (another app in front), the windows keep their normal look.
@@ -365,13 +442,17 @@ impl Render for Workspace {
       .on_action(cx.listener(|this, _: &ToggleSidebar, window, cx| {
         this.sidebar_open = !this.sidebar_open;
         // The next launch, and the next window, start the way this one was left.
-        if let Err(error) = (Preferences { sidebar_open: this.sidebar_open }).save(&Preferences::default_path()) {
-          eprintln!("Could not save the preferences: {error}");
-        }
+        let open = this.sidebar_open;
+        this.model.update(cx, |model, cx| model.set_sidebar_open(open, cx));
         this.focus_handle.focus(window, cx);
         cx.notify();
       }))
       .on_action(cx.listener(|this, _: &Paste, window, cx| this.paste(window, cx)))
+      .on_action(cx.listener(|this, _: &OpenSettings, window, cx| this.toggle_settings(window, cx)))
+      .on_action(cx.listener(|this, _: &CheckForUpdates, window, cx| {
+        this.open_settings(SettingsPage::Updates, window, cx);
+        this.model.update(cx, |model, cx| model.check_update(cx));
+      }))
       .on_action(cx.listener(|this, _: &ClearScreen, _, _| this.write(vec![0x0c])))
       .on_action(cx.listener(|this, _: &ClearHistory, window, cx| this.confirm_clear_history(window, cx)))
       .on_action(cx.listener(|this, _: &NewTab, window, cx| {

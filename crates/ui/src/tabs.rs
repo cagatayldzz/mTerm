@@ -25,7 +25,18 @@ impl Workspace {
     let icon = if open { IconName::PanelLeftClose } else { IconName::PanelLeftOpen };
     let tooltip = if open { "Hide history (⌘B)" } else { "Show history (⌘B)" };
 
-    let middle = if self.tabs.len() > 1 {
+    let settings_open = self.settings.is_some();
+    let middle = if settings_open {
+      div()
+        .flex_1()
+        .min_w_0()
+        .text_center()
+        .text_size(px(13.))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(theme.foreground.opacity(0.6))
+        .child("Settings")
+        .into_any_element()
+    } else if self.tabs.len() > 1 {
       h_flex()
         .flex_1()
         .min_w_0()
@@ -64,8 +75,13 @@ impl Workspace {
           .gap_2()
           .child(sidebar_toggle(icon, tooltip))
           .child(middle)
-          // Balances the toggle so a lone title stays centered.
-          .when(self.tabs.len() <= 1, |this| this.child(div().w(px(24.)))),
+          // Closes Settings; otherwise it balances the toggle so a lone title stays centered.
+          .child(if settings_open {
+            icon_button("close-settings", IconName::Close, "Close Settings (Esc)", cx.listener(|this, _, window, cx| this.close_settings(window, cx)))
+              .into_any_element()
+          } else {
+            div().w(px(24.)).into_any_element()
+          }),
       )
   }
 

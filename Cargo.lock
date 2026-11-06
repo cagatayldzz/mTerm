@@ -3763,7 +3763,20 @@ dependencies = [
  "gpui-kit-assets",
  "mterm-storage",
  "mterm-terminal",
+ "mterm-updater",
 ]
+
+[[package]]
+name = "mterm-updater"
+version = "0.1.0"
+dependencies = [
+ "mterm-version",
+ "serde_json",
+]
+
+[[package]]
+name = "mterm-version"
+version = "0.1.0"
 
 [[package]]
 name = "multiversion_no_op"

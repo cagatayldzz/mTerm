@@ -7,5 +7,5 @@ mod window_size;
 
 pub use history::History;
 pub use paths::{data_dir, directory_from_url};
-pub use preferences::Preferences;
+pub use preferences::{Preferences, ThemeChoice};
 pub use window_size::WindowSize;

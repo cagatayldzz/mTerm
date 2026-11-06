@@ -1,0 +1,24 @@
+[package]
+name = "mterm-updater"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "mTerm self-update from GitHub releases"
+
+# Register tests as unit modules so they can exercise private implementation details.
+autotests = false
+
+[package.metadata.layers]
+dependencies = ["mterm-version", "serde_json"]
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+mterm-version.workspace = true
+serde_json.workspace = true

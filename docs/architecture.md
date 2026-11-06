@@ -6,15 +6,18 @@ mTerm is a Cargo workspace of small crates with a one-way dependency direction.
 
 ```text
 apps/mterm ──► ui ──► terminal
-     │          └────► storage
+     │          ├────► storage
+     │          └────► updater ──► version
      └───────────────► storage
 ```
 
 | Crate | Owns | Depends on |
 | --- | --- | --- |
 | `terminal` | `Session` (PTY + emulator), `Snapshot`, `Palette`, `encode_key`, `paste_bytes` | `alacritty_terminal` |
-| `storage` | data directory, `WindowSize`, `History` | none |
-| `ui` | `Workspace` (toolbar, history sidebar, terminal view), actions, assets | terminal, storage, gpui-kit |
+| `storage` | data directory, `WindowSize`, `History`, `Preferences` | none |
+| `version` | numeric version comparison | none |
+| `updater` | release lookup, download, verification, bundle swap | version |
+| `ui` | `AppModel` (shared preferences and update state), `Workspace` (top band, history sidebar, tabs and panes), the Settings page, actions, assets | terminal, storage, updater, gpui-kit |
 | `apps/mterm` | window, menus, key bindings, quit handling | ui, storage, gpui-kit |
 
 `terminal` and `storage` know nothing about the interface, so they are tested
@@ -41,6 +44,19 @@ Panes report events over one channel tagged with their id; a shell that exits cl
 its pane, the last pane closes the tab, and the last tab closes the window. Each pane
 fits its PTY to the space layout gives it (a `canvas` measures it during paint).
 New windows are opened by the app (`⌘N` / the context menu's `NewWindow` action).
+
+## Settings and updates
+
+`AppModel` is one entity shared by every window. It owns the saved `Preferences`
+(sidebar state, theme, automatic update checks) and mTerm's own update state. Windows
+observe it, so a theme change or a new release reaches all of them. Settings (`⌘,`, or
+the gear in the sidebar) replace the terminal inside the window and edit it; `Esc` closes them.
+
+Updates follow TendKit: the updater asks the GitHub releases API for the latest release,
+downloads `mTerm-<tag>-macos-arm64.zip` only when asked, and verifies it against
+`SHA256SUMS.txt`, the code signature, Gatekeeper and the signing team before a helper
+script swaps the `.app` bundle and reopens it. A failed swap restores the old app.
+Development builds never check for or install releases.
 
 ## Conventions
 
