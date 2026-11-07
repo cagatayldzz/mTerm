@@ -109,6 +109,7 @@ fn named_key(key: &str, mods: Modifiers, app_cursor: bool) -> Option<Vec<u8>> {
   };
   let tilde = |code: &str| csi(code, '~');
   Some(match key {
+    "enter" if mods.shift && !mods.alt && !mods.control => b"\x1b[13;2u".to_vec(),
     "enter" => b"\r".to_vec(),
     "tab" if mods.shift => b"\x1b[Z".to_vec(),
     "tab" => b"\t".to_vec(),

@@ -225,7 +225,7 @@ impl Workspace {
       .overflow_hidden()
       .bg(background)
       .on_mouse_move(cx.listener(move |this, event: &MouseMoveEvent, window, cx| {
-        if event.pressed_button == Some(MouseButton::Left) {
+        if event.pressed_button == Some(MouseButton::Left) && !cx.has_active_drag() {
           if let (Some(bounds), Some(pane)) = (move_bounds.get(), this.panes.get_mut(&id)) {
             if let Some((anchor, _)) = pane.selection {
               let x = f32::from(event.position.x - bounds.origin.x - PADDING);
@@ -251,6 +251,9 @@ impl Workspace {
       .on_mouse_down(
         MouseButton::Left,
         cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+          if cx.has_active_drag() {
+            return;
+          }
           this.focus_pane(id, window, cx);
           if !event.modifiers.platform {
             if let Some(bounds) = click_bounds.get() {

@@ -16,6 +16,7 @@ entry to type it at the prompt.
 | `⌘,` | Open Settings (`Esc` closes it) |
 | `⌘V` | Paste |
 | `⌘K` | Clear the screen |
+| `⇧Enter` | Insert a newline in applications that support Shift+Enter |
 | `⌥←` / `⌥→` | Move by word |
 | `⌘←` / `⌘→` | Move to the start / end of the line |
 

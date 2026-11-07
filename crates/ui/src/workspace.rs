@@ -690,6 +690,9 @@ impl Workspace {
     let Some(id) = self.focused_pane_id() else { return };
     let Some(pane) = self.panes.get_mut(&id) else { return };
     match key {
+      "enter" if modifiers.shift && !modifiers.alt && !modifiers.control && !modifiers.command => {
+        pane.line_unreliable = true;
+      }
       "enter" => {
         let line = std::mem::take(&mut pane.line);
         if !pane.line_unreliable && !line.trim().is_empty() {

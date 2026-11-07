@@ -35,6 +35,7 @@ fn control_letters_become_control_bytes() {
 #[test]
 fn special_keys_use_escape_sequences() {
   assert_eq!(encode_key("enter", None, plain(), false), Some(b"\r".to_vec()));
+  assert_eq!(encode_key("enter", None, Modifiers { shift: true, ..plain() }, false), Some(b"\x1b[13;2u".to_vec()));
   assert_eq!(encode_key("backspace", None, plain(), false), Some(vec![0x7f]));
   assert_eq!(encode_key("tab", None, Modifiers { shift: true, ..plain() }, false), Some(b"\x1b[Z".to_vec()));
   assert_eq!(encode_key("delete", None, plain(), false), Some(b"\x1b[3~".to_vec()));
