@@ -238,7 +238,13 @@ impl Workspace {
           }
         }
         if window.modifiers().platform {
-          cx.notify();
+          if let Some(pane) = this.panes.get_mut(&id) {
+            let cell = move_bounds.get().and_then(|bounds| cell_at(bounds, event.position, cell_width, line_height));
+            if pane.hover_cell != cell {
+              pane.hover_cell = cell;
+              cx.notify();
+            }
+          }
         }
       }))
       .on_modifiers_changed(cx.listener(|_, _, _, cx| cx.notify()))
@@ -251,14 +257,16 @@ impl Workspace {
               if let Some((line, column)) = cell_at(bounds, event.position, cell_width, line_height) {
                 if let Some(pane) = this.panes.get_mut(&id) {
                   let position = (line.min(line_count.saturating_sub(1)), column.min(columns));
-                  let text = pane.session.snapshot(&click_palette).line_text(position.0);
-                  pane.selection = if event.click_count >= 3 {
-                    let width = text.chars().map(|character| character.width().unwrap_or(0)).sum();
-                    Some(((position.0, 0), (position.0, width)))
-                  } else if event.click_count == 2 {
-                    crate::selection::word_range(&text, position.1).map(|(start, end)| ((position.0, start), (position.0, end)))
-                  } else {
+                  pane.selection = if event.click_count < 2 {
                     Some((position, position))
+                  } else {
+                    let text = pane.session.snapshot(&click_palette).line_text(position.0);
+                    if event.click_count >= 3 {
+                      let width = text.chars().map(|character| character.width().unwrap_or(0)).sum();
+                      Some(((position.0, 0), (position.0, width)))
+                    } else {
+                      crate::selection::word_range(&text, position.1).map(|(start, end)| ((position.0, start), (position.0, end)))
+                    }
                   };
                   cx.notify();
                 }

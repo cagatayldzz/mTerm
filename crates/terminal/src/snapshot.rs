@@ -112,10 +112,13 @@ impl Glyph {
 }
 
 /// Groups a row of glyphs into spans of equal style.
-pub(crate) fn spans(row: &[Glyph]) -> Vec<Span> {
+pub(crate) fn spans<'a>(row: impl IntoIterator<Item = &'a Glyph>) -> Vec<Span> {
   let mut spans: Vec<Span> = Vec::new();
   let mut previous: Option<&Glyph> = None;
   for glyph in row {
+    if glyph.character == '\u{200b}' {
+      continue;
+    }
     match (spans.last_mut(), previous) {
       (Some(span), Some(last)) if last.same_style(glyph) => span.text.push(glyph.character),
       _ => spans.push(Span {

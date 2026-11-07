@@ -25,6 +25,10 @@ use std::{
   collections::HashMap,
   path::PathBuf,
   rc::Rc,
+  sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+  },
 };
 
 /// Height of the top band: the traffic lights and the title or tabs.
@@ -47,6 +51,8 @@ pub(crate) struct Pane {
   /// Fractional lines left over from smooth scrolling.
   pub scroll_remainder: f32,
   pub selection: Option<((usize, usize), (usize, usize))>,
+  pub hover_cell: Option<(usize, usize)>,
+  wakeup_pending: Arc<AtomicBool>,
 }
 
 /// A tab: an arrangement of panes and the one that has the keyboard.
@@ -203,15 +209,25 @@ impl Workspace {
   }
 
   fn handle_events(&mut self, events: Vec<(PaneId, SessionEvent)>, window: &mut Window, cx: &mut Context<Self>) {
+    let visible_panes =
+      if self.settings.is_none() { self.tabs.get(self.active).map(|tab| tab.root.leaves()).unwrap_or_default() } else { Vec::new() };
+    let mut redraw = false;
     for (id, event) in events {
       match event {
-        SessionEvent::Wakeup => {}
+        SessionEvent::Wakeup => {
+          if let Some(pane) = self.panes.get(&id) {
+            pane.wakeup_pending.store(false, Ordering::Release);
+            redraw |= visible_panes.contains(&id);
+          }
+        }
         SessionEvent::Title(title) => {
           if let (Some(pane), false) = (self.panes.get_mut(&id), title.is_empty()) {
             pane.title = title;
+            redraw = true;
           }
         }
         SessionEvent::Directory(directory) => {
+          redraw = true;
           if let Some(pane) = self.panes.get_mut(&id) {
             pane.directory = Some(directory.clone());
           }
@@ -232,10 +248,15 @@ impl Workspace {
           }
         }
         // Leaving the shell closes its pane, like iTerm2.
-        SessionEvent::Exit => self.close_pane(id, window),
+        SessionEvent::Exit => {
+          self.close_pane(id, window);
+          redraw = true;
+        }
       }
     }
-    cx.notify();
+    if redraw {
+      cx.notify();
+    }
   }
 
   // Panes, tabs and splits
@@ -243,6 +264,8 @@ impl Workspace {
   fn spawn_pane(&mut self, directory: Option<PathBuf>, cx: &App) -> Option<PaneId> {
     let id = self.next_pane;
     let sender = self.events.clone();
+    let wakeup_pending = Arc::new(AtomicBool::new(false));
+    let pending = wakeup_pending.clone();
     let options = SessionOptions {
       program: None,
       working_directory: directory.or_else(|| std::env::var_os("HOME").map(Into::into)),
@@ -250,6 +273,9 @@ impl Workspace {
     };
     let pane_directory = options.working_directory.clone();
     match Session::spawn(options, 80, 24, move |event| {
+      if event == SessionEvent::Wakeup && pending.swap(true, Ordering::AcqRel) {
+        return;
+      }
       let _ = sender.unbounded_send((id, event));
     }) {
       Ok(session) => {
@@ -267,6 +293,8 @@ impl Workspace {
             line_unreliable: false,
             scroll_remainder: 0.,
             selection: None,
+            hover_cell: None,
+            wakeup_pending,
           },
         );
         Some(id)

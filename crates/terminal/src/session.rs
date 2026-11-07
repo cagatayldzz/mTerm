@@ -111,6 +111,16 @@ pub struct Session {
   #[cfg(unix)]
   child_id: u32,
   notify: Notify,
+  #[cfg(unix)]
+  directory_refresh: Arc<Mutex<DirectoryRefresh>>,
+}
+
+#[cfg(unix)]
+#[derive(Default)]
+struct DirectoryRefresh {
+  running: bool,
+  pending: bool,
+  closed: bool,
 }
 
 impl Session {
@@ -149,6 +159,8 @@ impl Session {
       #[cfg(unix)]
       child_id,
       notify: proxy.notify.clone(),
+      #[cfg(unix)]
+      directory_refresh: Arc::new(Mutex::new(DirectoryRefresh::default())),
     })
   }
 
@@ -163,10 +175,25 @@ impl Session {
   pub fn refresh_directory(&self) {
     #[cfg(unix)]
     {
+      let mut state = self.directory_refresh.lock().unwrap_or_else(|error| error.into_inner());
+      state.pending = true;
+      if state.running {
+        return;
+      }
+      state.running = true;
+      drop(state);
       let id = self.child_id;
       let notify = self.notify.clone();
-      std::thread::spawn(move || {
+      let refresh = self.directory_refresh.clone();
+      std::thread::spawn(move || loop {
         std::thread::sleep(std::time::Duration::from_millis(300));
+        {
+          let mut state = refresh.lock().unwrap_or_else(|error| error.into_inner());
+          if state.closed {
+            return;
+          }
+          state.pending = false;
+        }
         #[cfg(target_os = "macos")]
         let directory = std::process::Command::new("/usr/sbin/lsof")
           .args(["-a", "-p", &id.to_string(), "-d", "cwd", "-Fn"])
@@ -176,8 +203,17 @@ impl Session {
           .and_then(|text| text.lines().find_map(|line| line.strip_prefix('n').map(PathBuf::from)));
         #[cfg(not(target_os = "macos"))]
         let directory = std::fs::read_link(format!("/proc/{id}/cwd")).ok();
-        if let Some(directory) = directory.filter(|path| path.is_dir()) {
-          notify(SessionEvent::Directory(directory));
+        let mut state = refresh.lock().unwrap_or_else(|error| error.into_inner());
+        if state.closed {
+          return;
+        }
+        if !state.pending {
+          state.running = false;
+          drop(state);
+          if let Some(directory) = directory.filter(|path| path.is_dir()) {
+            notify(SessionEvent::Directory(directory));
+          }
+          return;
         }
       });
     }
@@ -262,13 +298,17 @@ impl Session {
     if let Some(cursor) = cursor {
       rows[cursor.line][cursor.column].invert(palette);
     }
-    let lines = rows.iter().map(|row| spans(&row.iter().filter(|glyph| glyph.character != '\u{200b}').cloned().collect::<Vec<_>>())).collect();
+    let lines = rows.iter().map(spans).collect();
     Snapshot { lines, cursor, columns, scrolled: offset, hyperlinks }
   }
 }
 
 impl Drop for Session {
   fn drop(&mut self) {
+    #[cfg(unix)]
+    {
+      self.directory_refresh.lock().unwrap_or_else(|error| error.into_inner()).closed = true;
+    }
     let _ = self.sender.send(Msg::Shutdown);
   }
 }
