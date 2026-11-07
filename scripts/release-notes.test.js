@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { generateNotes, maxCommits, nextVersion, releaseBump, renderNotes, validateItems } from "./release-notes.js";
+import { generateNotes, maxCommits, nextVersion, releaseBump, renderNotes, validateItems } from "./release.ts";
 
 const commits = [
   { sha: "a".repeat(40), subject: "feat: add native window (#12)" },

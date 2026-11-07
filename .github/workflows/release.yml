@@ -67,7 +67,7 @@ jobs:
         id: version
         env:
           EXPECTED_SHA: ${{ github.sha }}
-        run: bun scripts/release-ci.js prepare
+        run: bun scripts/release.ts prepare
       - name: Check for an existing release
         env:
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
@@ -79,7 +79,7 @@ jobs:
       - name: Generate release notes
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: bun scripts/release-ci.js notes
+        run: bun scripts/release.ts notes
       - name: Preserve versioned build inputs
         uses: actions/upload-artifact@v7
         with:
@@ -163,7 +163,7 @@ jobs:
       - name: Verify the package and generate checksums
         env:
           RELEASE_TAG: ${{ steps.metadata.outputs.tag }}
-        run: bun scripts/package-release.js finalize
+        run: bun scripts/release.ts finalize
       - name: Preserve verified release
         uses: actions/upload-artifact@v7
         with:

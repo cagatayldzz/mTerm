@@ -61,7 +61,18 @@ make_icon() {
     sips -z "$((size * 2))" "$((size * 2))" "$work/icon.svg.png" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
   done
   iconutil -c icns "$iconset" -o "$resources/AppIcon.icns"
-  swift "$project_dir/scripts/dev-icon.swift" "$resources/AppIcon.icns" "$work/dev.png"
+  # Draw the development ribbon over the same rendered icon without a Swift toolchain.
+  {
+    printf '%s' '<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><image width="1024" height="1024" href="data:image/png;base64,'
+    base64 < "$work/icon.svg.png" | tr -d '\n'
+    cat <<'SVG'
+"/><defs><clipPath id="icon"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath></defs>
+<g clip-path="url(#icon)"><path d="M100 500V100H500Z" fill="#f26133"/>
+<text x="238" y="317" transform="rotate(-45 238 317)" fill="white" font-family="-apple-system, sans-serif" font-size="90" font-weight="bold">DEV</text></g></svg>
+SVG
+  } > "$work/dev.svg"
+  "$chrome" --headless=new --disable-gpu --hide-scrollbars --default-background-color=00000000 \
+    --window-size=1024,1024 --screenshot="$work/dev.png" "file://$work/dev.svg" >/dev/null 2>&1
   for size in 16 32 128 256 512; do
     sips -z "$size" "$size" "$work/dev.png" --out "$iconset/icon_${size}x${size}.png" >/dev/null
     sips -z "$((size * 2))" "$((size * 2))" "$work/dev.png" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null

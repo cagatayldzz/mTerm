@@ -6,7 +6,7 @@
     "dev": "bash scripts/app.sh --dev",
     "build": "bash scripts/app.sh release --build",
     "update": "cargo update",
-    "release": "bun scripts/release.js",
+    "release": "bun scripts/release.ts",
     "check": "bash scripts/app.sh --check",
     "test": "cargo test --locked --workspace",
     "commit": "git add -A && oco --yes"

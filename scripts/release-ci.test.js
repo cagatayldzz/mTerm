@@ -18,9 +18,7 @@ test("release preparation selects the tagged range and stamps every package cons
   };
   try {
     for (const directory of ["scripts", "apps/mterm/macos"]) mkdirSync(join(root, directory), { recursive: true });
-    for (const file of ["release-ci.js", "release-notes.js"]) {
-      copyFileSync(new URL(file, import.meta.url), join(root, "scripts", file));
-    }
+    copyFileSync(new URL("release.ts", import.meta.url), join(root, "scripts", "release.ts"));
     writeFileSync(join(root, "package.json"), '{"version":"0.2.0","type":"module"}\n');
     writeFileSync(join(root, "Cargo.toml"), '[workspace.package]\nversion = "0.2.0"\nedition = "2021"\n');
     writeFileSync(join(root, "Cargo.lock"), ["mterm", "mterm-terminal", "mterm-storage", "dependency", "mterm-ui"]
@@ -36,7 +34,7 @@ test("release preparation selects the tagged range and stamps every package cons
     const sha = git("rev-parse", "HEAD");
     const output = join(root, "github-output");
     const env = { GITHUB_ACTIONS: "true", EXPECTED_SHA: sha, GITHUB_OUTPUT: output, GITHUB_RUN_NUMBER: "42" };
-    const result = run([process.execPath, "scripts/release-ci.js", "prepare"], env);
+    const result = run([process.execPath, "scripts/release.ts", "prepare"], env);
     expect(result.stderr.toString()).toBe("");
     expect(result.exitCode).toBe(0);
     const context = JSON.parse(readFileSync(join(root, "dist/release-context.json"), "utf8"));
@@ -54,11 +52,11 @@ test("release preparation selects the tagged range and stamps every package cons
     expect(lock).toContain('name = "dependency"\nversion = "1.0.0"');
     expect(readFileSync(join(root, "apps/mterm/macos/Info.plist"), "utf8")).toContain("<string>42</string>");
     expect(git("rev-parse", "HEAD")).toBe(sha);
-    const moved = run([process.execPath, "scripts/release-ci.js", "prepare"], { ...env, EXPECTED_SHA: "0".repeat(40) });
+    const moved = run([process.execPath, "scripts/release.ts", "prepare"], { ...env, EXPECTED_SHA: "0".repeat(40) });
     expect(moved.exitCode).toBe(1);
     expect(moved.stderr.toString()).toContain("does not match the workflow source commit");
     git("tag", "v0.2.10");
-    const empty = run([process.execPath, "scripts/release-ci.js", "prepare"], env);
+    const empty = run([process.execPath, "scripts/release.ts", "prepare"], env);
     expect(empty.exitCode).toBe(1);
     expect(empty.stderr.toString()).toContain("no changes");
   } finally {

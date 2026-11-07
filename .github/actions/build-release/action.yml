@@ -35,7 +35,7 @@ runs:
       env:
         RELEASE_TAG: ${{ inputs.release-tag }}
       shell: bash
-      run: bun scripts/package-release.js package
+      run: bun scripts/release.ts package
     - uses: actions/upload-artifact@v7
       with:
         name: release-macos-${{ inputs.arch }}
