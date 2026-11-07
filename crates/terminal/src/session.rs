@@ -1,17 +1,20 @@
 use crate::{
   palette::Palette,
-  snapshot::{spans, Cursor, Glyph, Snapshot},
+  search::{find_in_row, fold_query, Highlight, Match, RowCell},
+  snapshot::{spans, Cursor, CursorShape, Glyph, Snapshot},
 };
 use alacritty_terminal::{
   event::{Event, EventListener, WindowSize},
   event_loop::{EventLoop, EventLoopSender, Msg},
   grid::{Dimensions, Scroll},
+  index::{Column, Line},
   sync::FairMutex,
   term::{cell::Flags, Config, Term, TermMode},
   tty::{self, Options, Shell},
   vte::ansi::NamedColor,
 };
 use std::{
+  collections::HashMap,
   path::PathBuf,
   sync::{Arc, Mutex, OnceLock},
 };
@@ -25,6 +28,8 @@ pub enum SessionEvent {
   Title(String),
   /// The shell reported its working directory.
   Directory(PathBuf),
+  /// The program asked to put text on the clipboard (OSC 52).
+  ClipboardStore(String),
   /// The shell exited.
   Exit,
 }
@@ -44,6 +49,27 @@ pub struct SessionOptions {
 pub struct Modes {
   pub app_cursor: bool,
   pub bracketed_paste: bool,
+  /// The program wants button presses and releases.
+  pub mouse_click: bool,
+  /// The program also wants motion while a button is held.
+  pub mouse_drag: bool,
+  /// The program also wants motion with no button held.
+  pub mouse_motion: bool,
+  /// Mouse reports use the SGR encoding.
+  pub sgr_mouse: bool,
+  /// The program runs on the alternate screen (a pager or editor), which has no history.
+  pub alt_screen: bool,
+  /// The wheel is sent as arrow keys on the alternate screen when the mouse is not reported.
+  pub alternate_scroll: bool,
+  /// The program wants to know when the terminal gains or loses focus.
+  pub focus_reporting: bool,
+}
+
+impl Modes {
+  /// Whether the program asked to receive mouse events.
+  pub fn mouse_reporting(&self) -> bool {
+    self.mouse_click || self.mouse_drag || self.mouse_motion
+  }
 }
 
 type Notify = Arc<dyn Fn(SessionEvent) + Send + Sync>;
@@ -61,6 +87,7 @@ impl EventListener for Proxy {
       Event::Wakeup => (self.notify)(SessionEvent::Wakeup),
       Event::Title(title) => (self.notify)(SessionEvent::Title(title)),
       Event::ResetTitle => (self.notify)(SessionEvent::Title(String::new())),
+      Event::ClipboardStore(_, text) => (self.notify)(SessionEvent::ClipboardStore(text)),
       Event::Exit | Event::ChildExit(_) => (self.notify)(SessionEvent::Exit),
       // Replies the program asked for, such as cursor position reports.
       Event::PtyWrite(text) => {
@@ -140,8 +167,7 @@ impl Session {
     let pty_options = Options {
       shell: options.program.map(|(program, args)| Shell::new(program, args)),
       working_directory: options.working_directory,
-      // Do not advertise the terminal that launched mTerm to child programs.
-      env: [("TERM_PROGRAM".into(), "mTerm".into()), ("TERM_PROGRAM_VERSION".into(), String::new())].into(),
+      env: child_environment(),
       ..Options::default()
     };
     let pty = tty::new(&pty_options, window_size(columns, lines), 0)?;
@@ -169,6 +195,31 @@ impl Session {
     let _ = self.sender.send(Msg::Input(bytes.into()));
     // Typing returns the view to the live output.
     self.term.lock().scroll_display(Scroll::Bottom);
+  }
+
+  /// Sends a report the program asked for, such as a mouse event, without leaving the history view.
+  pub fn report(&self, bytes: impl Into<std::borrow::Cow<'static, [u8]>>) {
+    let _ = self.sender.send(Msg::Input(bytes.into()));
+  }
+
+  /// Scrolls the history view by one screen; returns whether the viewport changed.
+  pub fn scroll_page(&self, up: bool) -> bool {
+    let mut term = self.term.lock();
+    let previous = term.grid().display_offset();
+    term.scroll_display(if up { Scroll::PageUp } else { Scroll::PageDown });
+    term.grid().display_offset() != previous
+  }
+
+  /// Tells a program that asked for focus reports that the terminal gained or lost focus.
+  pub fn report_focus(&self, focused: bool) {
+    if self.term.lock().mode().contains(TermMode::FOCUS_IN_OUT) {
+      let _ = self.sender.send(Msg::Input(if focused { &b"\x1b[I"[..] } else { &b"\x1b[O"[..] }.into()));
+    }
+  }
+
+  /// Erases the scrollback history and returns to the live screen.
+  pub fn clear_history(&self) {
+    self.term.lock().grid_mut().clear_history();
   }
 
   /// Refreshes the shell's working directory without blocking the interface.
@@ -240,6 +291,46 @@ impl Session {
     term.grid().display_offset() != previous
   }
 
+  /// Finds `query` in the whole buffer, history included, oldest hit first.
+  pub fn find(&self, query: &str, case_sensitive: bool) -> Vec<Match> {
+    let query = fold_query(query, case_sensitive);
+    let term = self.term.lock();
+    let top = -(term.grid().history_size() as i32);
+    (top..term.screen_lines() as i32)
+      .flat_map(|line| find_in_row(&row_cells(&term, line), &query, case_sensitive).into_iter().map(move |(start, end)| Match { line, start, end }))
+      .collect()
+  }
+
+  /// The hits on the visible screen, with `current` marked.
+  pub fn highlights(&self, query: &str, case_sensitive: bool, current: Option<Match>) -> Vec<Highlight> {
+    let query = fold_query(query, case_sensitive);
+    let term = self.term.lock();
+    let offset = term.grid().display_offset() as i32;
+    (0..term.screen_lines())
+      .flat_map(|row| {
+        let line = row as i32 - offset;
+        find_in_row(&row_cells(&term, line), &query, case_sensitive).into_iter().map(move |(start, end)| Highlight {
+          line: row,
+          start,
+          end,
+          current: current == Some(Match { line, start, end }),
+        })
+      })
+      .collect()
+  }
+
+  /// Scrolls so `hit` is on screen, in the middle when it was out of view. Returns whether the viewport moved.
+  pub fn reveal(&self, hit: Match) -> bool {
+    let mut term = self.term.lock();
+    let (offset, lines) = (term.grid().display_offset() as i32, term.screen_lines() as i32);
+    if (0..lines).contains(&(hit.line + offset)) {
+      return false;
+    }
+    let target = (lines / 2 - hit.line).clamp(0, term.grid().history_size() as i32);
+    term.scroll_display(Scroll::Delta(target - offset));
+    true
+  }
+
   /// Moves to a history offset, returning whether the viewport changed.
   pub fn scroll_to(&self, offset: usize) -> bool {
     let mut term = self.term.lock();
@@ -251,8 +342,18 @@ impl Session {
   }
 
   pub fn modes(&self) -> Modes {
-    let term = self.term.lock();
-    Modes { app_cursor: term.mode().contains(TermMode::APP_CURSOR), bracketed_paste: term.mode().contains(TermMode::BRACKETED_PASTE) }
+    let mode = *self.term.lock().mode();
+    Modes {
+      app_cursor: mode.contains(TermMode::APP_CURSOR),
+      bracketed_paste: mode.contains(TermMode::BRACKETED_PASTE),
+      mouse_click: mode.contains(TermMode::MOUSE_REPORT_CLICK),
+      mouse_drag: mode.contains(TermMode::MOUSE_DRAG),
+      mouse_motion: mode.contains(TermMode::MOUSE_MOTION),
+      sgr_mouse: mode.contains(TermMode::SGR_MOUSE),
+      alt_screen: mode.contains(TermMode::ALT_SCREEN),
+      alternate_scroll: mode.contains(TermMode::ALTERNATE_SCROLL),
+      focus_reporting: mode.contains(TermMode::FOCUS_IN_OUT),
+    }
   }
 
   /// Updates the colors reported to applications querying the terminal.
@@ -266,13 +367,10 @@ impl Session {
     let (columns, lines) = (term.columns(), term.screen_lines());
     let content = term.renderable_content();
     let offset = content.display_offset;
-    let mut rows = vec![vec![Glyph::blank(); columns]; lines];
-    let mut hyperlinks = vec![vec![None; columns]; lines];
-    for row in &mut rows {
-      for glyph in row.iter_mut() {
-        glyph.foreground = palette.foreground;
-      }
-    }
+    let blank = Glyph { foreground: palette.foreground, ..Glyph::blank() };
+    let mut rows = vec![vec![blank; columns]; lines];
+    let mut hyperlinks = HashMap::new();
+    let mut wrapped = vec![false; lines];
     for indexed in content.display_iter {
       let line = indexed.point.line.0 + offset as i32;
       let column = indexed.point.column.0;
@@ -280,7 +378,12 @@ impl Session {
         continue;
       }
       let cell = indexed.cell;
-      hyperlinks[line as usize][column] = cell.hyperlink().map(|link| link.uri().to_owned());
+      if let Some(link) = cell.hyperlink() {
+        hyperlinks.insert((line as usize, column), link.uri().to_owned());
+      }
+      if cell.flags.contains(Flags::WRAPLINE) {
+        wrapped[line as usize] = true;
+      }
       if cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
         // The wide character before it already fills both cells.
         rows[line as usize][column] = Glyph { character: '\u{200b}', ..Glyph::blank() };
@@ -305,14 +408,21 @@ impl Session {
       rows[line as usize][column] = glyph;
     }
     let cursor = alacritty_terminal::term::point_to_viewport(offset, content.cursor.point)
-      .filter(|_| content.cursor.shape != alacritty_terminal::vte::ansi::CursorShape::Hidden)
       .filter(|point| point.line < lines && point.column.0 < columns)
-      .map(|point| Cursor { line: point.line, column: point.column.0 });
-    if let Some(cursor) = cursor {
+      .and_then(|point| {
+        let shape = match content.cursor.shape {
+          alacritty_terminal::vte::ansi::CursorShape::Hidden => return None,
+          alacritty_terminal::vte::ansi::CursorShape::Underline => CursorShape::Underline,
+          alacritty_terminal::vte::ansi::CursorShape::Beam => CursorShape::Beam,
+          _ => CursorShape::Block,
+        };
+        Some(Cursor { line: point.line, column: point.column.0, shape })
+      });
+    if let Some(cursor) = cursor.filter(|cursor| cursor.shape == CursorShape::Block) {
       rows[cursor.line][cursor.column].invert(palette);
     }
     let lines = rows.iter().map(spans).collect();
-    Snapshot { lines, cursor, columns, scrolled: offset, history_size: term.grid().history_size(), hyperlinks }
+    Snapshot { lines, cursor, columns, scrolled: offset, history_size: term.grid().history_size(), hyperlinks, wrapped }
   }
 }
 
@@ -324,6 +434,38 @@ impl Drop for Session {
     }
     let _ = self.sender.send(Msg::Shutdown);
   }
+}
+
+/// The environment every shell starts with.
+fn child_environment() -> HashMap<String, String> {
+  let mut environment = HashMap::from([
+    // Do not advertise the terminal that launched mTerm to child programs.
+    ("TERM_PROGRAM".to_owned(), "mTerm".to_owned()),
+    ("TERM_PROGRAM_VERSION".to_owned(), env!("CARGO_PKG_VERSION").to_owned()),
+    // Remote hosts rarely know the `alacritty` terminfo entry that the emulator library prefers.
+    ("TERM".to_owned(), "xterm-256color".to_owned()),
+    ("COLORTERM".to_owned(), "truecolor".to_owned()),
+  ]);
+  // Apps started from Finder have no locale, which leaves shells unable to type or show non-ASCII text.
+  let has_locale = ["LC_ALL", "LC_CTYPE", "LANG"].iter().any(|name| std::env::var_os(name).is_some_and(|value| !value.is_empty()));
+  if !has_locale {
+    environment.insert("LANG".to_owned(), "en_US.UTF-8".to_owned());
+  }
+  environment
+}
+
+/// The characters of one row with the cells they cover; the filler cell after a wide character is left out.
+fn row_cells(term: &Term<Proxy>, line: i32) -> Vec<RowCell> {
+  let row = &term.grid()[Line(line)];
+  (0..term.columns())
+    .filter_map(|column| {
+      let cell = &row[Column(column)];
+      if cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
+        return None;
+      }
+      Some(RowCell { character: cell.c, column, width: if cell.flags.contains(Flags::WIDE_CHAR) { 2 } else { 1 } })
+    })
+    .collect()
 }
 
 fn window_size(columns: usize, lines: usize) -> WindowSize {

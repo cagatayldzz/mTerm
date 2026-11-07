@@ -8,6 +8,12 @@ fn double_click_selects_a_word_in_cell_coordinates() {
 }
 
 #[test]
+fn double_click_keeps_paths_and_flags_together() {
+  assert_eq!(word_range("cd ~/dev/my-app.rs now", 6), Some((3, 18)));
+  assert_eq!(word_range("run --flag=1", 6), Some((4, 10)));
+}
+
+#[test]
 fn arrow_selection_moves_across_lines_and_wide_characters() {
   let lines = vec!["hello".to_owned(), "a界z".to_owned(), "end".to_owned()];
   assert_eq!(move_endpoint(&lines, (0, 5), "down"), (1, 4));

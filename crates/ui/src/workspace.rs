@@ -1,7 +1,8 @@
 use crate::{
   layout::{Node, PaneId, Split},
   settings::{render_settings, SettingsPage},
-  CheckForUpdates, ClearHistory, ClearScreen, ClosePane, Copy, NewTab, NextTab, OpenSettings, Paste, PreviousTab, SplitHorizontally, SplitVertically,
+  CheckForUpdates, ClearHistory, ClearScreen, ClosePane, Copy, DecreaseFontSize, Find, FindNext, FindPrevious, IncreaseFontSize, NewTab, NextPane,
+  NextTab, OpenSettings, Paste, PreviousPane, PreviousTab, ResetFontSize, SelectAll, SplitHorizontally, SplitVertically,
 };
 use crate::{
   model::{AppGlobal, AppModel, AppUpdate},
@@ -44,6 +45,8 @@ pub const CONTEXT: &str = "Workspace";
 pub(crate) struct Pane {
   pub session: Rc<Session>,
   pub title: String,
+  /// The title shown until a program sets its own, and again once it resets it.
+  default_title: String,
   pub directory: Option<PathBuf>,
   pub content_bounds: Rc<std::cell::Cell<Option<Bounds<Pixels>>>>,
   line: String,
@@ -53,6 +56,10 @@ pub(crate) struct Pane {
   pub selection: Option<((usize, usize), (usize, usize))>,
   pub selection_dragging: bool,
   pub hover_cell: Option<(usize, usize)>,
+  /// The button held while the program receives mouse events, to report its release.
+  pub mouse_button: Option<mterm_terminal::MouseButton>,
+  /// The cell of the last mouse event sent to the program, so motion is reported once per cell.
+  pub mouse_cell: Option<(usize, usize)>,
   wakeup_pending: Arc<AtomicBool>,
 }
 
@@ -76,6 +83,8 @@ pub struct Workspace {
   pub(crate) saved_sessions: Vec<SavedSession>,
   /// The Settings page shown in place of the terminal, when open.
   pub(crate) settings: Option<SettingsPage>,
+  /// The find bar, when open.
+  pub(crate) find: Option<crate::find::Find>,
   settings_epoch: u64,
   pub(crate) model: Entity<AppModel>,
   applied_theme: ThemeChoice,
@@ -94,6 +103,9 @@ impl Workspace {
       // The dimming of inactive windows follows activation. Every window re-renders, since one
       // gaining focus changes whether the others are dimmed.
       cx.observe_window_activation(window, |this, window, cx| {
+        if let Some(pane) = this.focused_pane() {
+          pane.session.report_focus(window.is_window_active());
+        }
         if window.is_window_active() {
           this.sync_saved_sessions(cx);
         }
@@ -145,6 +157,7 @@ impl Workspace {
       error: None,
       saved_sessions: SavedSession::list(&SavedSession::directory_path()),
       settings: None,
+      find: None,
       settings_epoch: 0,
       model,
       applied_theme,
@@ -222,11 +235,13 @@ impl Workspace {
           }
         }
         SessionEvent::Title(title) => {
-          if let (Some(pane), false) = (self.panes.get_mut(&id), title.is_empty()) {
-            pane.title = title;
+          if let Some(pane) = self.panes.get_mut(&id) {
+            // An empty title is a reset: go back to the shell's name once a program like vim exits.
+            pane.title = if title.is_empty() { pane.default_title.clone() } else { title };
             redraw = true;
           }
         }
+        SessionEvent::ClipboardStore(text) => cx.write_to_clipboard(ClipboardItem::new_string(text)),
         SessionEvent::Directory(directory) => {
           redraw = true;
           if let Some(pane) = self.panes.get_mut(&id) {
@@ -287,6 +302,7 @@ impl Workspace {
           id,
           Pane {
             session: Rc::new(session),
+            default_title: title.clone(),
             title,
             directory: pane_directory,
             content_bounds: Rc::new(std::cell::Cell::new(None)),
@@ -296,6 +312,8 @@ impl Workspace {
             selection: None,
             selection_dragging: false,
             hover_cell: None,
+            mouse_button: None,
+            mouse_cell: None,
             wakeup_pending,
           },
         );
@@ -587,9 +605,18 @@ impl Workspace {
   }
 
   pub(crate) fn focus_pane(&mut self, id: PaneId, window: &mut Window, cx: &mut Context<Self>) {
+    let previous = self.focused_pane_id();
     if let Some(tab) = self.tabs.get_mut(self.active) {
       if tab.root.leaves().contains(&id) {
         tab.focused = id;
+      }
+    }
+    if previous != self.focused_pane_id() {
+      if let Some(pane) = previous.and_then(|id| self.panes.get(&id)) {
+        pane.session.report_focus(false);
+      }
+      if let Some(pane) = self.focused_pane() {
+        pane.session.report_focus(true);
       }
     }
     self.focus_handle.focus(window, cx);
@@ -611,6 +638,23 @@ impl Workspace {
     let indices = self.active_tab_indices();
     if let Some(current) = indices.iter().position(|index| *index == self.active) {
       self.select_tab(indices[(current as isize + step).rem_euclid(indices.len() as isize) as usize], window, cx);
+    }
+  }
+
+  fn step_pane(&mut self, step: isize, window: &mut Window, cx: &mut Context<Self>) {
+    let Some(tab) = self.tabs.get(self.active) else { return };
+    let leaves = tab.root.leaves();
+    if leaves.len() < 2 {
+      return;
+    }
+    let current = leaves.iter().position(|id| *id == tab.focused).unwrap_or(0);
+    self.focus_pane(leaves[(current as isize + step).rem_euclid(leaves.len() as isize) as usize], window, cx);
+  }
+
+  /// Drops the focused pane's selection, which would no longer line up with the text after input or scrolling.
+  pub(crate) fn clear_selection(&mut self) {
+    if let Some(pane) = self.focused_pane_id().and_then(|id| self.panes.get_mut(&id)) {
+      pane.selection = None;
     }
   }
 
@@ -652,6 +696,41 @@ impl Workspace {
       return;
     }
     let keystroke = &event.keystroke;
+    // While the find bar has the keyboard, typing belongs to it; Escape closes it.
+    if self.find.is_some() && !self.focus_handle.is_focused(window) {
+      if keystroke.key == "escape" {
+        self.close_find(window, cx);
+        cx.stop_propagation();
+      }
+      return;
+    }
+    let held = keystroke.modifiers;
+    // ⌘1…⌘9 pick a tab; ⌘9 is the last one, like iTerm2.
+    if held.platform && !held.control && !held.alt && !held.shift {
+      if let Some(digit) = keystroke.key.parse::<usize>().ok().filter(|digit| (1..=9).contains(digit)) {
+        let indices = self.active_tab_indices();
+        if let Some(index) = if digit == 9 { indices.last() } else { indices.get(digit - 1) }.copied() {
+          self.select_tab(index, window, cx);
+        }
+        cx.stop_propagation();
+        return;
+      }
+    }
+    // ⇧PageUp, ⇧PageDown, ⇧Home and ⇧End move through the history instead of reaching the program.
+    if held.shift && !held.control && !held.alt && !held.platform && matches!(keystroke.key.as_str(), "pageup" | "pagedown" | "home" | "end") {
+      if let Some(pane) = self.focused_pane().filter(|pane| !pane.session.modes().alt_screen) {
+        match keystroke.key.as_str() {
+          "pageup" => pane.session.scroll_page(true),
+          "pagedown" => pane.session.scroll_page(false),
+          "home" => pane.session.scroll_to(usize::MAX),
+          _ => pane.session.scroll_to(0),
+        };
+        self.clear_selection();
+        cx.stop_propagation();
+        cx.notify();
+        return;
+      }
+    }
     if keystroke.modifiers.shift
       && !keystroke.modifiers.control
       && !keystroke.modifiers.alt
@@ -683,6 +762,7 @@ impl Workspace {
     let Some(bytes) = encode_key(&keystroke.key, text, modifiers, pane.session.modes().app_cursor) else { return };
     pane.session.write(bytes);
     self.track_input(&keystroke.key, text, modifiers);
+    self.clear_selection();
     cx.stop_propagation();
     cx.notify();
   }
@@ -783,8 +863,9 @@ impl Workspace {
     }
     let (start, end) = if anchor < end { (anchor, end) } else { (end, anchor) };
     let snapshot = pane.session.snapshot(&Self::palette(cx));
-    let mut lines = Vec::new();
-    for line in start.0..=end.0.min(snapshot.lines.len().saturating_sub(1)) {
+    let last = end.0.min(snapshot.lines.len().saturating_sub(1));
+    let mut copied = String::new();
+    for line in start.0..=last {
       let text: String = snapshot.lines[line].iter().map(|span| span.text.as_str()).collect();
       let from = if line == start.0 { start.1 } else { 0 };
       let to = if line == end.0 { end.1 } else { snapshot.columns };
@@ -798,15 +879,18 @@ impl Workspace {
           include
         })
         .collect();
-      lines.push(selected.trim_end().to_owned());
+      // A line that only wrapped at the screen edge is one line of text: keep it whole.
+      if line < last && snapshot.wrapped.get(line).copied().unwrap_or(false) {
+        copied.push_str(&selected);
+      } else {
+        copied.push_str(selected.trim_end());
+        copied.push('\n');
+      }
     }
-    while lines.last().is_some_and(String::is_empty) {
-      lines.pop();
-    }
-    cx.write_to_clipboard(ClipboardItem::new_string(lines.join("\n")));
+    cx.write_to_clipboard(ClipboardItem::new_string(copied.trim_end_matches('\n').to_owned()));
   }
 
-  fn paste(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+  pub(crate) fn paste(&mut self, window: &mut Window, cx: &mut Context<Self>) {
     if self.settings.is_some() {
       return;
     }
@@ -877,7 +961,29 @@ impl Render for Workspace {
         this.open_settings(SettingsPage::Updates, window, cx);
         this.model.update(cx, |model, cx| model.check_update(cx));
       }))
-      .on_action(cx.listener(|this, _: &ClearScreen, _, _| this.write(vec![0x0c])))
+      .on_action(cx.listener(|this, _: &Find, window, cx| this.open_find(window, cx)))
+      .on_action(cx.listener(|this, _: &FindNext, _, cx| this.step_find(true, cx)))
+      .on_action(cx.listener(|this, _: &FindPrevious, _, cx| this.step_find(false, cx)))
+      .on_action(cx.listener(|this, _: &SelectAll, _, cx| {
+        let Some(pane) = this.focused_pane_id().and_then(|id| this.panes.get_mut(&id)) else { return };
+        let snapshot = pane.session.snapshot(&Self::palette(cx));
+        pane.selection = Some(((0, 0), (snapshot.lines.len().saturating_sub(1), snapshot.columns)));
+        cx.notify();
+      }))
+      .on_action(cx.listener(|this, _: &ClearScreen, _, cx| {
+        // Like iTerm2's Clear Buffer: the scrollback goes too, and the prompt redraws on a clean screen.
+        if let Some(pane) = this.focused_pane() {
+          pane.session.clear_history();
+        }
+        this.clear_selection();
+        this.write(vec![0x0c]);
+        cx.notify();
+      }))
+      .on_action(cx.listener(|this, _: &IncreaseFontSize, _, cx| this.model.update(cx, |model, cx| model.zoom_terminal_font(1, cx))))
+      .on_action(cx.listener(|this, _: &DecreaseFontSize, _, cx| this.model.update(cx, |model, cx| model.zoom_terminal_font(-1, cx))))
+      .on_action(cx.listener(|this, _: &ResetFontSize, _, cx| this.model.update(cx, |model, cx| model.reset_terminal_font(cx))))
+      .on_action(cx.listener(|this, _: &NextPane, window, cx| this.step_pane(1, window, cx)))
+      .on_action(cx.listener(|this, _: &PreviousPane, window, cx| this.step_pane(-1, window, cx)))
       .on_action(cx.listener(|this, _: &ClearHistory, window, cx| this.confirm_clear_history(window, cx)))
       .on_action(cx.listener(|this, _: &NewTab, window, cx| {
         this.new_tab(cx);
@@ -936,6 +1042,7 @@ impl Render for Workspace {
           ),
         )
       })
+      .when_some(self.render_find_bar(cx), |this, bar| this.child(bar))
       // A soft black veil over every window that is not the one in use.
       .when(inactive, |this| this.child(div().absolute().top_0().left_0().size_full().bg(black().opacity(INACTIVE_VEIL))))
   }

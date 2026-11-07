@@ -1,4 +1,5 @@
 use crate::palette::{Palette, Rgb};
+use std::collections::HashMap;
 use unicode_width::UnicodeWidthChar as _;
 
 /// A run of cells that share one style.
@@ -14,11 +15,22 @@ pub struct Span {
   pub strikeout: bool,
 }
 
+/// How the cursor is drawn.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CursorShape {
+  /// Drawn by swapping the colors of its cell, so the snapshot already shows it.
+  #[default]
+  Block,
+  Underline,
+  Beam,
+}
+
 /// Where the cursor is, in viewport cells.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Cursor {
   pub line: usize,
   pub column: usize,
+  pub shape: CursorShape,
 }
 
 /// The visible screen, one `Vec<Span>` per line.
@@ -31,15 +43,30 @@ pub struct Snapshot {
   pub scrolled: usize,
   /// Number of lines available above the live screen.
   pub history_size: usize,
-  /// Explicit OSC 8 hyperlink targets indexed by viewport cell.
-  pub hyperlinks: Vec<Vec<Option<String>>>,
+  /// Explicit OSC 8 hyperlink targets by `(line, column)` viewport cell; most screens have none.
+  pub hyperlinks: HashMap<(usize, usize), String>,
+  /// Whether each line continues on the next one because the text wrapped, not because of a newline.
+  pub wrapped: Vec<bool>,
 }
 
 impl Snapshot {
   /// Returns the explicit or plain web link under a viewport cell.
   pub fn link_at(&self, line: usize, column: usize) -> Option<String> {
-    if let Some(Some(link)) = self.hyperlinks.get(line).and_then(|row| row.get(column)) {
-      return Some(link.clone());
+    self.link_range_at(line, column).map(|(target, _, _)| target)
+  }
+
+  /// Returns the link under a viewport cell with the cell range `start..end` it covers.
+  pub fn link_range_at(&self, line: usize, column: usize) -> Option<(String, usize, usize)> {
+    if let Some(link) = self.hyperlinks.get(&(line, column)) {
+      let mut start = column;
+      while start > 0 && self.hyperlinks.get(&(line, start - 1)) == Some(link) {
+        start -= 1;
+      }
+      let mut end = column + 1;
+      while self.hyperlinks.get(&(line, end)) == Some(link) {
+        end += 1;
+      }
+      return Some((link.clone(), start, end));
     }
     let text = self.line_text(line);
     let mut cell = 0;
@@ -60,7 +87,7 @@ impl Snapshot {
         let link_start = start_column + word[..prefix].chars().map(|c| c.width().unwrap_or(0)).sum::<usize>();
         let link_end = link_start + target.chars().map(|c| c.width().unwrap_or(0)).sum::<usize>();
         if column >= link_start && column < link_end {
-          return Some(target.to_owned());
+          return Some((target.to_owned(), link_start, link_end));
         }
       }
     }

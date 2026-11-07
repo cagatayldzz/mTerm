@@ -13,7 +13,7 @@ apps/mterm ──► ui ──► terminal
 
 | Crate | Owns | Depends on |
 | --- | --- | --- |
-| `terminal` | `Session` (PTY + emulator and shell directory lookup), `Snapshot`, `Palette`, `encode_key`, `paste_bytes` | `alacritty_terminal` |
+| `terminal` | `Session` (PTY + emulator and shell directory lookup), `Snapshot`, `Palette`, `encode_key`, `encode_mouse`, `paste_bytes` | `alacritty_terminal` |
 | `storage` | data directory, `WindowSize`, `SavedSession`, `History`, `Preferences` | `serde_json` |
 | `version` | numeric version comparison | none |
 | `updater` | release lookup, download, verification, bundle swap | version |
@@ -32,7 +32,10 @@ without a window.
    `Workspace` and calls `cx.notify()`. Bursts of output are handled in one update.
 3. On every render, `Workspace` fits the PTY to the window (`Session::resize`) and
    takes a `Snapshot`: the visible lines as styled spans with resolved RGB colors.
-   The cursor is drawn as an inverted cell inside the snapshot.
+   A block cursor is drawn as an inverted cell inside the snapshot; beam and underline
+   cursors are reported in `Snapshot::cursor` and drawn by the interface. `Session::modes`
+   exposes the mouse, alternate-screen and focus modes so the interface can report mouse
+   events to programs that ask for them.
 4. Key presses go through `encode_key` and are written to the PTY. The same keys
    feed a small line tracker that adds finished commands to `History`.
 

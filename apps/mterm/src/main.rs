@@ -6,8 +6,9 @@ use futures::StreamExt as _;
 use gpui_kit::{component::TitleBar, *};
 use mterm_storage::{directory_from_url, WindowSize};
 use mterm_ui::{
-  Assets, CheckForUpdates, ClearHistory, ClearScreen, ClosePane, Copy, Hide, HideOthers, Minimize, NewTab, NewWindow, NextTab, OpenSettings, Paste,
-  PreviousTab, Quit, ShowAll, SplitHorizontally, SplitVertically, Workspace, Zoom, CONTEXT, TOOLBAR_HEIGHT,
+  Assets, CheckForUpdates, ClearHistory, ClearScreen, ClosePane, Copy, DecreaseFontSize, Find, FindNext, FindPrevious, Hide, HideOthers,
+  IncreaseFontSize, Minimize, NewTab, NewWindow, NextPane, NextTab, OpenSettings, Paste, PreviousPane, PreviousTab, Quit, ResetFontSize, SelectAll,
+  ShowAll, SplitHorizontally, SplitVertically, Workspace, Zoom, CONTEXT, TOOLBAR_HEIGHT,
 };
 use std::{path::PathBuf, time::Duration};
 
@@ -148,7 +149,17 @@ fn bind_keys(cx: &mut App) {
     KeyBinding::new("shift-cmd-[", PreviousTab, Some(CONTEXT)),
     KeyBinding::new("cmd-c", Copy, Some(CONTEXT)),
     KeyBinding::new("cmd-v", Paste, Some(CONTEXT)),
+    KeyBinding::new("cmd-a", SelectAll, Some(CONTEXT)),
+    KeyBinding::new("cmd-f", Find, Some(CONTEXT)),
+    KeyBinding::new("cmd-g", FindNext, Some(CONTEXT)),
+    KeyBinding::new("shift-cmd-g", FindPrevious, Some(CONTEXT)),
     KeyBinding::new("cmd-k", ClearScreen, Some(CONTEXT)),
+    KeyBinding::new("cmd-]", NextPane, Some(CONTEXT)),
+    KeyBinding::new("cmd-[", PreviousPane, Some(CONTEXT)),
+    KeyBinding::new("cmd-=", IncreaseFontSize, Some(CONTEXT)),
+    KeyBinding::new("cmd-+", IncreaseFontSize, Some(CONTEXT)),
+    KeyBinding::new("cmd--", DecreaseFontSize, Some(CONTEXT)),
+    KeyBinding::new("cmd-0", ResetFontSize, Some(CONTEXT)),
   ]);
   cx.on_action(|_: &Minimize, cx| {
     if let Some(window) = cx.active_window() {
@@ -188,16 +199,29 @@ fn set_menus(cx: &mut App) {
       MenuItem::action("Split Pane Vertically", SplitVertically),
       MenuItem::action("Split Pane Horizontally", SplitHorizontally),
       MenuItem::separator(),
+      MenuItem::separator(),
+      MenuItem::action("Select Next Pane", NextPane),
+      MenuItem::action("Select Previous Pane", PreviousPane),
+      MenuItem::separator(),
       MenuItem::action("Close", ClosePane),
     ]),
     Menu::new("Edit").items([
       MenuItem::action("Copy", Copy),
       MenuItem::action("Paste", Paste),
+      MenuItem::action("Select All", SelectAll),
       MenuItem::separator(),
-      MenuItem::action("Clear Screen", ClearScreen),
+      MenuItem::action("Find…", Find),
+      MenuItem::action("Find Next", FindNext),
+      MenuItem::action("Find Previous", FindPrevious),
+      MenuItem::separator(),
+      MenuItem::action("Clear Buffer", ClearScreen),
     ]),
     Menu::new("View").items([
-      MenuItem::action("Clear History", ClearHistory),
+      MenuItem::action("Make Text Bigger", IncreaseFontSize),
+      MenuItem::action("Make Text Smaller", DecreaseFontSize),
+      MenuItem::action("Actual Size", ResetFontSize),
+      MenuItem::separator(),
+      MenuItem::action("Clear Command History", ClearHistory),
       MenuItem::separator(),
       MenuItem::action("Show Next Tab", NextTab),
       MenuItem::action("Show Previous Tab", PreviousTab),

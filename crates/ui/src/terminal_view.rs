@@ -1,6 +1,6 @@
 use crate::{
   layout::{Node, PaneId, Split},
-  workspace::{Workspace, TOOLBAR_HEIGHT},
+  workspace::{Pane, Workspace, TOOLBAR_HEIGHT},
   ClearScreen, ClosePane, Copy, NewTab, NewWindow, Paste, SplitHorizontally, SplitVertically,
 };
 use gpui_kit::prelude::FluentBuilder as _;
@@ -14,7 +14,9 @@ use gpui_kit::{
   *,
 };
 use mterm_storage::FontChoice;
-use mterm_terminal::{Palette, Rgb, Snapshot};
+use mterm_terminal::{
+  encode_key, encode_mouse, CursorShape, Modes, MouseAction, MouseButton as TermButton, MouseEvent as TermMouse, Palette, Rgb, Session, Snapshot,
+};
 use std::{
   cell::Cell,
   path::{Path, PathBuf},
@@ -72,6 +74,47 @@ fn cell_at(bounds: Bounds<Pixels>, position: Point<Pixels>, cell_width: f32, lin
   let x = f32::from(position.x - bounds.origin.x - PADDING);
   let y = f32::from(position.y - bounds.origin.y - PADDING);
   (bounds.contains(&position) && x >= 0. && y >= 0.).then(|| ((y / f32::from(line_height)).floor() as usize, (x / cell_width).floor() as usize))
+}
+
+/// The cell under the mouse, held inside the screen, for programs that follow the mouse.
+fn clamped_cell(
+  bounds: Bounds<Pixels>,
+  position: Point<Pixels>,
+  cell_width: f32,
+  line_height: Pixels,
+  columns: usize,
+  lines: usize,
+) -> (usize, usize) {
+  let x = f32::from(position.x - bounds.origin.x - PADDING);
+  let y = f32::from(position.y - bounds.origin.y - PADDING);
+  let line = ((y / f32::from(line_height)).floor().max(0.) as usize).min(lines.saturating_sub(1));
+  let column = ((x / cell_width).floor().max(0.) as usize).min(columns.saturating_sub(1));
+  (line, column)
+}
+
+/// Sends one mouse event to a program that asked for mouse reporting.
+fn report_mouse(session: &Session, modes: Modes, button: TermButton, action: MouseAction, (line, column): (usize, usize), held: &Modifiers) {
+  let modifiers = mterm_terminal::Modifiers { control: held.control, alt: held.alt, shift: held.shift, command: false };
+  if let Some(bytes) = encode_mouse(TermMouse { button, action, column, line, modifiers }, modes.sgr_mouse) {
+    session.report(bytes);
+  }
+}
+
+/// Sends the release of the button that is held for the program, if any.
+fn release_mouse(
+  pane: &mut Pane,
+  bounds: Option<Bounds<Pixels>>,
+  position: Point<Pixels>,
+  held: &Modifiers,
+  cell_width: f32,
+  line_height: Pixels,
+  size: (usize, usize),
+) {
+  pane.selection_dragging = false;
+  let (Some(button), Some(bounds)) = (pane.mouse_button.take(), bounds) else { return };
+  pane.mouse_cell = None;
+  let cell = clamped_cell(bounds, position, cell_width, line_height, size.0, size.1);
+  report_mouse(&pane.session, pane.session.modes(), button, MouseAction::Release, cell, held);
 }
 
 fn openable_url(target: &str, directory: Option<&Path>) -> Option<String> {
@@ -224,6 +267,11 @@ impl Workspace {
     let click_bounds = content_bounds.clone();
     let click_palette = metrics.palette.clone();
     let move_bounds = content_bounds.clone();
+    let up_bounds = content_bounds.clone();
+    let out_bounds = content_bounds.clone();
+    let scroll_bounds = content_bounds.clone();
+    let middle_bounds = content_bounds.clone();
+    let middle_up_bounds = content_bounds.clone();
     let selection = pane.selection;
     let columns = snapshot.columns;
     let line_count = snapshot.lines.len();
@@ -233,18 +281,12 @@ impl Workspace {
     let thumb_top = if snapshot.history_size > 0 { travel * (1. - snapshot.scrolled as f32 / snapshot.history_size as f32) } else { px(0.) };
     let has_scrollbar = snapshot.history_size > 0 && travel > px(0.);
     let scrollbar_start = Rc::new(Cell::new(px(0.)));
+    let reporting = pane.session.modes().mouse_reporting();
+    let highlights = self.find_highlights(id, cx);
     let hovered = if window.modifiers().platform {
       content_bounds.get().and_then(|bounds| cell_at(bounds, window.mouse_position(), cell_width, line_height)).and_then(|(line, column)| {
-        let target = snapshot.link_at(line, column)?;
+        let (target, start, end) = snapshot.link_range_at(line, column)?;
         let url = openable_url(&target, pane.directory.as_deref())?;
-        let mut start = column;
-        let mut end = column + 1;
-        while start > 0 && snapshot.link_at(line, start - 1).as_deref() == Some(&target) {
-          start -= 1;
-        }
-        while end < snapshot.columns && snapshot.link_at(line, end).as_deref() == Some(&target) {
-          end += 1;
-        }
         Some((line, start, end, url))
       })
     } else {
@@ -278,6 +320,21 @@ impl Workspace {
             pane.selection_dragging = false;
           }
         }
+        if reporting && !event.modifiers.shift {
+          if let (Some(bounds), Some(pane)) = (move_bounds.get(), this.panes.get_mut(&id)) {
+            let modes = pane.session.modes();
+            let wanted = if pane.mouse_button.is_some() { modes.mouse_drag || modes.mouse_motion } else { modes.mouse_motion };
+            let cell = clamped_cell(bounds, event.position, cell_width, line_height, columns, line_count);
+            if wanted && pane.mouse_cell != Some(cell) {
+              pane.mouse_cell = Some(cell);
+              let (button, action) = match pane.mouse_button {
+                Some(button) => (button, MouseAction::Drag),
+                None => (TermButton::None, MouseAction::Move),
+              };
+              report_mouse(&pane.session, modes, button, action, cell, &event.modifiers);
+            }
+          }
+        }
         if window.modifiers().platform {
           if let Some(pane) = this.panes.get_mut(&id) {
             let cell = move_bounds.get().and_then(|bounds| cell_at(bounds, event.position, cell_width, line_height));
@@ -309,6 +366,18 @@ impl Workspace {
                 return;
               }
             }
+          }
+          let modes = this.panes.get(&id).map(|pane| pane.session.modes()).unwrap_or_default();
+          if modes.mouse_reporting() && !event.modifiers.shift && !event.modifiers.platform {
+            // The program follows the mouse itself; holding Shift selects text instead.
+            if let (Some(bounds), Some(pane)) = (click_bounds.get(), this.panes.get_mut(&id)) {
+              let cell = clamped_cell(bounds, event.position, cell_width, line_height, columns, line_count);
+              pane.selection = None;
+              pane.mouse_button = Some(TermButton::Left);
+              pane.mouse_cell = Some(cell);
+              report_mouse(&pane.session, modes, TermButton::Left, MouseAction::Press, cell, &event.modifiers);
+            }
+            return;
           }
           if !event.modifiers.platform {
             if let Some(bounds) = click_bounds.get() {
@@ -345,17 +414,40 @@ impl Workspace {
       )
       .on_mouse_up(
         MouseButton::Left,
-        cx.listener(move |this, _, _, _| {
+        cx.listener(move |this, event: &MouseUpEvent, _, _| {
           if let Some(pane) = this.panes.get_mut(&id) {
-            pane.selection_dragging = false;
+            release_mouse(pane, up_bounds.get(), event.position, &event.modifiers, cell_width, line_height, (columns, line_count));
           }
         }),
       )
       .on_mouse_up_out(
         MouseButton::Left,
-        cx.listener(move |this, _, _, _| {
+        cx.listener(move |this, event: &MouseUpEvent, _, _| {
           if let Some(pane) = this.panes.get_mut(&id) {
-            pane.selection_dragging = false;
+            release_mouse(pane, out_bounds.get(), event.position, &event.modifiers, cell_width, line_height, (columns, line_count));
+          }
+        }),
+      )
+      // The middle button pastes, or goes to a program that follows the mouse.
+      .on_mouse_down(
+        MouseButton::Middle,
+        cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+          this.focus_pane(id, window, cx);
+          let modes = this.panes.get(&id).map(|pane| pane.session.modes()).unwrap_or_default();
+          if !modes.mouse_reporting() || event.modifiers.shift {
+            this.paste(window, cx);
+          } else if let (Some(bounds), Some(pane)) = (middle_bounds.get(), this.panes.get_mut(&id)) {
+            let cell = clamped_cell(bounds, event.position, cell_width, line_height, columns, line_count);
+            pane.mouse_button = Some(TermButton::Middle);
+            report_mouse(&pane.session, modes, TermButton::Middle, MouseAction::Press, cell, &event.modifiers);
+          }
+        }),
+      )
+      .on_mouse_up(
+        MouseButton::Middle,
+        cx.listener(move |this, event: &MouseUpEvent, _, _| {
+          if let Some(pane) = this.panes.get_mut(&id).filter(|pane| pane.mouse_button == Some(TermButton::Middle)) {
+            release_mouse(pane, middle_up_bounds.get(), event.position, &event.modifiers, cell_width, line_height, (columns, line_count));
           }
         }),
       )
@@ -381,11 +473,32 @@ impl Workspace {
         let Some(pane) = this.panes.get_mut(&id) else { return };
         pane.scroll_remainder += f32::from(event.delta.pixel_delta(line_height).y) / f32::from(line_height);
         let lines = pane.scroll_remainder.trunc();
-        if lines != 0. {
-          pane.scroll_remainder -= lines;
-          if pane.session.scroll(lines as i32) {
-            cx.notify();
+        if lines == 0. {
+          return;
+        }
+        pane.scroll_remainder -= lines;
+        let modes = pane.session.modes();
+        let (up, count) = (lines > 0., (lines.abs() as usize).min(20));
+        if modes.mouse_reporting() && !event.modifiers.shift {
+          // A program that follows the mouse scrolls itself.
+          if let Some(bounds) = scroll_bounds.get() {
+            let cell = clamped_cell(bounds, event.position, cell_width, line_height, columns, line_count);
+            let button = if up { TermButton::WheelUp } else { TermButton::WheelDown };
+            for _ in 0..count {
+              report_mouse(&pane.session, modes, button, MouseAction::Press, cell, &event.modifiers);
+            }
           }
+        } else if modes.alt_screen && modes.alternate_scroll {
+          // Pagers and editors have no history; the wheel moves their cursor like the arrow keys.
+          if let Some(bytes) = encode_key(if up { "up" } else { "down" }, None, Default::default(), modes.app_cursor) {
+            for _ in 0..count {
+              pane.session.report(bytes.clone());
+            }
+          }
+        } else if pane.session.scroll(lines as i32) {
+          // The selection is tied to screen positions, which just moved.
+          pane.selection = None;
+          cx.notify();
         }
       }))
       // Fits the PTY to the space this pane was given.
@@ -407,6 +520,7 @@ impl Workspace {
         .right_0()
         .bottom_0(),
       )
+      .when(!reporting, |this| this.cursor_text())
       .when_some(hovered, |this, (line, start, end, url)| {
         this
           .cursor_pointer()
@@ -451,6 +565,15 @@ impl Workspace {
             rows(&snapshot, &metrics.font, line_height).into_any_element()
           }),
       )
+      .children(highlights.into_iter().map(|hit| {
+        div()
+          .absolute()
+          .left(PADDING + metrics.cell_width * hit.start as f32)
+          .top(header_height + PADDING + line_height * hit.line as f32)
+          .w(metrics.cell_width * (hit.end - hit.start) as f32)
+          .h(line_height)
+          .bg(if hit.current { gpui_kit::rgb(0xff9f0a).opacity(0.7) } else { gpui_kit::rgb(0xffd60a).opacity(0.4) })
+      }))
       .when_some(selection, |this, (anchor, end)| {
         let (start, end) = if anchor < end { (anchor, end) } else { (end, anchor) };
         this.children((start.0..=end.0).filter_map(|line| {
@@ -467,6 +590,21 @@ impl Workspace {
               .bg(gpui_kit::rgb(0x69a9ff).opacity(0.4))
           })
         }))
+      })
+      .when_some(snapshot.cursor.filter(|cursor| focused && cursor.shape != CursorShape::Block), |this, cursor| {
+        let (width, height, offset) = match cursor.shape {
+          CursorShape::Beam => (px(2.), line_height, px(0.)),
+          _ => (metrics.cell_width, px(2.), line_height - px(2.)),
+        };
+        this.child(
+          div()
+            .absolute()
+            .left(PADDING + metrics.cell_width * cursor.column as f32)
+            .top(header_height + PADDING + line_height * cursor.line as f32 + offset)
+            .w(width)
+            .h(height)
+            .bg(color(metrics.palette.foreground)),
+        )
       })
       // Panes other than the focused one sit under a lighter veil of the same kind.
       .when(split && !focused, |this| this.child(div().absolute().top(header_height).left_0().right_0().bottom_0().bg(black().opacity(PANE_VEIL))))

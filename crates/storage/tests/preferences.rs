@@ -4,7 +4,6 @@ use mterm_storage::{FontChoice, Preferences, ThemeChoice};
 fn preferences_have_sensible_defaults() {
   let dir = std::env::temp_dir().join(format!("mterm-prefs-default-{}", std::process::id()));
   let preferences = Preferences::load(&dir.join("missing.txt"));
-  assert!(preferences.sidebar_open);
   assert!(preferences.check_updates);
   assert_eq!(preferences.theme, ThemeChoice::System);
   assert_eq!((preferences.terminal_font_size, preferences.terminal_line_height), (12, 16));
@@ -14,14 +13,8 @@ fn preferences_have_sensible_defaults() {
 fn preferences_round_trip() {
   let dir = std::env::temp_dir().join(format!("mterm-prefs-{}", std::process::id()));
   let path = dir.join("preferences.txt");
-  let saved = Preferences {
-    sidebar_open: false,
-    check_updates: false,
-    theme: ThemeChoice::SlateDark,
-    font: FontChoice::Geist,
-    terminal_font_size: 18,
-    terminal_line_height: 24,
-  };
+  let saved =
+    Preferences { check_updates: false, theme: ThemeChoice::SlateDark, font: FontChoice::Geist, terminal_font_size: 18, terminal_line_height: 24 };
   saved.save(&path).unwrap();
   assert_eq!(Preferences::load(&path), saved);
   std::fs::remove_dir_all(dir).unwrap();
@@ -32,15 +25,15 @@ fn unknown_or_invalid_values_keep_the_defaults() {
   let dir = std::env::temp_dir().join(format!("mterm-prefs-invalid-{}", std::process::id()));
   let path = dir.join("preferences.txt");
   std::fs::create_dir_all(&dir).unwrap();
-  std::fs::write(&path, "sidebar_open=maybe\ncheck_updates=false\ntheme=neon\nunknown=1\nnot a pair\n").unwrap();
+  std::fs::write(&path, "check_updates=maybe\ncheck_updates=false\ntheme=neon\nunknown=1\nnot a pair\n").unwrap();
   let preferences = Preferences::load(&path);
-  assert!(preferences.sidebar_open);
   assert!(!preferences.check_updates);
   assert_eq!(preferences.theme, ThemeChoice::System);
-  // An older file that only knows the sidebar still loads.
-  std::fs::write(&path, "sidebar_open=false\n").unwrap();
+  // An older file that still lists the removed sidebar setting loads with the other values intact.
+  std::fs::write(&path, "sidebar_open=false\nterminal_font_size=14\n").unwrap();
   let old = Preferences::load(&path);
-  assert!(!old.sidebar_open && old.check_updates);
+  assert!(old.check_updates);
+  assert_eq!(old.terminal_font_size, 14);
   std::fs::remove_dir_all(dir).unwrap();
 }
 

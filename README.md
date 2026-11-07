@@ -10,8 +10,8 @@ A minimal native terminal for macOS, built with Rust and [GPUI](https://gpui.rs)
 </p>
 
 mTerm brings tabs, split panes, and searchable settings together in a focused workspace.
-Use the history sidebar to revisit commands, and choose a light or dark appearance to
-suit your workflow.
+Search the scrollback with ⌘F, and choose a light or dark appearance to suit your
+workflow.
 
 ## Get started
 

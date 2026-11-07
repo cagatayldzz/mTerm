@@ -66,3 +66,19 @@ fn paste_normalizes_newlines_and_brackets() {
   assert_eq!(paste_bytes("a\nb", false), b"a\rb".to_vec());
   assert_eq!(paste_bytes("a", true), b"\x1b[200~a\x1b[201~".to_vec());
 }
+
+#[test]
+fn control_reaches_keys_beyond_letters() {
+  let control = Modifiers { control: true, ..plain() };
+  assert_eq!(encode_key("space", Some(" "), control, false), Some(vec![0]));
+  assert_eq!(encode_key("2", Some("2"), control, false), Some(vec![0]));
+  assert_eq!(encode_key("6", Some("6"), control, false), Some(vec![0x1e]));
+  assert_eq!(encode_key("-", Some("-"), control, false), Some(vec![0x1f]));
+  let control_option = Modifiers { control: true, alt: true, ..plain() };
+  assert_eq!(encode_key("b", None, control_option, false), Some(vec![0x1b, 2]));
+}
+
+#[test]
+fn bracketed_paste_cannot_end_itself_early() {
+  assert_eq!(paste_bytes("a\x1b[201~rm -rf ~", true), b"\x1b[200~a[201~rm -rf ~\x1b[201~".to_vec());
+}

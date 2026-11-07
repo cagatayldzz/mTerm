@@ -12,13 +12,30 @@ entry to type it at the prompt.
 | `⌘D` / `⇧⌘D` | Split the pane vertically / horizontally |
 | `⌘W` | Close the pane (its tab and window with the last one) |
 | `⇧⌘[` / `⇧⌘]` | Previous / next tab |
-| `⌘B` | Show or hide the history sidebar |
+| `⌘1`–`⌘9` | Go to tab 1–8 / the last tab |
+| `⌘[` / `⌘]` | Previous / next split pane |
 | `⌘,` | Open Settings (`Esc` closes it) |
-| `⌘V` | Paste |
-| `⌘K` | Clear the screen |
+| `⌘C` / `⌘V` / `⌘A` | Copy / paste / select all |
+| `⌘F` | Find in the screen and scrollback (`Return`/`⌘G` older match, `⇧Return`/`⇧⌘G` newer, `Esc` closes) |
+| `⌘K` | Clear the buffer, including the scrollback |
+| `⌘=` / `⌘-` / `⌘0` | Make the text bigger / smaller / actual size |
+| `⇧PageUp` / `⇧PageDown` | Scroll the history by a screen |
+| `⇧Home` / `⇧End` | Jump to the oldest / latest output |
 | `⇧Enter` | Insert a newline in applications that support Shift+Enter |
 | `⌥←` / `⌥→` | Move by word |
 | `⌘←` / `⌘→` | Move to the start / end of the line |
+
+## Mouse
+
+- Drag to select; double-click selects a word or path, triple-click a line.
+  Copying joins lines that only wrapped at the screen edge.
+- `⌘`-click opens a link or an existing file path under the pointer.
+- Middle-click pastes.
+- Programs that follow the mouse (tmux, vim, htop) receive clicks, drags and the
+  wheel. Hold `⇧` to select text instead.
+- In pagers and editors (`less`, `man`, `vim`) the wheel moves like the arrow keys.
+- Programs can copy to the clipboard with the OSC 52 escape sequence, which also
+  works over SSH.
 
 ## Opening from other apps
 

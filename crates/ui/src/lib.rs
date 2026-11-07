@@ -1,6 +1,7 @@
 //! The mTerm interface: a history sidebar next to tabs of split terminal panes, built with GPUI Kit.
 
 mod assets;
+mod find;
 mod history;
 mod layout;
 mod model;
@@ -28,7 +29,16 @@ actions!(
     Zoom,
     Copy,
     Paste,
+    SelectAll,
+    Find,
+    FindNext,
+    FindPrevious,
     ClearScreen,
+    IncreaseFontSize,
+    DecreaseFontSize,
+    ResetFontSize,
+    NextPane,
+    PreviousPane,
     ClearHistory,
     NewWindow,
     NewTab,

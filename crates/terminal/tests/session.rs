@@ -179,3 +179,105 @@ fn reports_the_shell_working_directory() {
     assert!(!matches!(receiver.recv_timeout(Duration::from_millis(50)), Ok(SessionEvent::Directory(_))));
   }
 }
+
+#[test]
+fn programs_are_told_the_terminal_type_and_a_locale() {
+  let (session, receiver) = run("printf '%s|%s' \"$TERM\" \"${LANG:-none}\"");
+  wait_for_exit(&receiver);
+  wait_for_screen(&session, |snapshot| snapshot.text().contains('|'));
+  let text = session.snapshot(&Palette::light()).text();
+  assert!(text.starts_with("xterm-256color|"), "{text}");
+  assert!(!text.ends_with("|none"), "{text}");
+}
+
+#[test]
+fn mouse_and_screen_modes_follow_the_program() {
+  let (session, _receiver) = run("printf '\\033[?1002h\\033[?1006h\\033[?1049h'; sleep 2");
+  let deadline = Instant::now() + Duration::from_secs(5);
+  while Instant::now() < deadline && !session.modes().alt_screen {
+    std::thread::sleep(Duration::from_millis(20));
+  }
+  let modes = session.modes();
+  assert!(modes.mouse_drag && modes.sgr_mouse && modes.alt_screen && modes.mouse_reporting());
+  assert!(!modes.mouse_motion && !modes.focus_reporting);
+}
+
+#[test]
+fn clearing_the_history_keeps_the_screen() {
+  let (session, receiver) = run("i=0; while [ $i -lt 30 ]; do echo line$i; i=$((i + 1)); done");
+  wait_for_exit(&receiver);
+  wait_for_screen(&session, |snapshot| snapshot.history_size > 0);
+  session.clear_history();
+  let snapshot = session.snapshot(&Palette::light());
+  assert_eq!((snapshot.history_size, snapshot.scrolled), (0, 0));
+  assert!(snapshot.text().contains("line29"));
+}
+
+#[test]
+fn text_that_wraps_is_marked_and_separate_lines_are_not() {
+  let (session, receiver) = run("printf '%050d\\nshort' 7");
+  wait_for_exit(&receiver);
+  wait_for_screen(&session, |snapshot| snapshot.text().contains("short"));
+  let snapshot = session.snapshot(&Palette::light());
+  assert_eq!(snapshot.wrapped[..3], [true, false, false]);
+}
+
+#[test]
+fn hyperlinks_report_the_cells_they_cover() {
+  let (session, receiver) = run("printf 'go \\033]8;;https://example.org/\\007here\\033]8;;\\007 now'");
+  wait_for_exit(&receiver);
+  wait_for_screen(&session, |snapshot| snapshot.text().contains("now"));
+  let snapshot = session.snapshot(&Palette::light());
+  assert_eq!(snapshot.link_range_at(0, 5), Some(("https://example.org/".to_owned(), 3, 7)));
+  assert_eq!(snapshot.link_range_at(0, 8), None);
+}
+
+#[test]
+fn clipboard_requests_from_programs_reach_the_interface() {
+  let (_session, receiver) = run("printf '\\033]52;c;aGVsbG8=\\007'; sleep 1");
+  let deadline = Instant::now() + Duration::from_secs(5);
+  while Instant::now() < deadline {
+    if let Ok(SessionEvent::ClipboardStore(text)) = receiver.recv_timeout(Duration::from_millis(100)) {
+      assert_eq!(text, "hello");
+      return;
+    }
+  }
+  panic!("no clipboard request arrived");
+}
+
+#[test]
+fn search_covers_history_and_ignores_case_unless_asked() {
+  let (session, receiver) = run("i=0; while [ $i -lt 30 ]; do echo Needle$i; i=$((i + 1)); done");
+  wait_for_exit(&receiver);
+  wait_for_screen(&session, |snapshot| snapshot.history_size > 0 && snapshot.text().contains("Needle29"));
+  let hits = session.find("needle1", false);
+  assert_eq!(hits.len(), 11);
+  assert!(hits[0].line < 0, "the oldest hit lives in the history");
+  assert_eq!((hits[0].start, hits[0].end), (0, 7));
+  assert_eq!(session.find("needle1", true).len(), 0);
+  assert_eq!(session.find("", false).len(), 0);
+}
+
+#[test]
+fn revealing_a_hit_scrolls_to_it_and_highlights_mark_the_current_one() {
+  let (session, receiver) = run("i=0; while [ $i -lt 30 ]; do echo Needle$i; i=$((i + 1)); done");
+  wait_for_exit(&receiver);
+  wait_for_screen(&session, |snapshot| snapshot.history_size > 0 && snapshot.text().contains("Needle29"));
+  let hits = session.find("needle", false);
+  let oldest = hits[0];
+  assert!(session.highlights("needle", false, None).iter().all(|highlight| !highlight.current));
+  assert!(session.reveal(oldest));
+  assert!(!session.reveal(oldest));
+  let current: Vec<_> = session.highlights("needle", false, Some(oldest)).into_iter().filter(|highlight| highlight.current).collect();
+  assert_eq!(current.len(), 1);
+  assert_eq!((current[0].start, current[0].end), (0, 6));
+}
+
+#[test]
+fn search_measures_wide_characters_in_cells() {
+  let (session, receiver) = run("printf 'a界b 界b'");
+  wait_for_exit(&receiver);
+  wait_for_screen(&session, |snapshot| snapshot.text().contains("界b"));
+  let hits = session.find("界b", true);
+  assert_eq!(hits.iter().map(|hit| (hit.start, hit.end)).collect::<Vec<_>>(), [(1, 4), (5, 8)]);
+}

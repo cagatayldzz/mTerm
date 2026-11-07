@@ -8,7 +8,8 @@ pub(crate) fn word_range(text: &str, column: usize) -> Option<(usize, usize)> {
     if width > 0 {
       let kind = if character.is_whitespace() {
         0
-      } else if character.is_alphanumeric() || character == '_' {
+      } else if character.is_alphanumeric() || "_-./+~\\".contains(character) {
+        // Path and flag characters stay in the word, so a double click takes a whole path.
         1
       } else {
         2

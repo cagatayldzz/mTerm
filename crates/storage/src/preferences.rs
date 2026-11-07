@@ -80,7 +80,6 @@ impl FontChoice {
 /// Settings and interface state that are remembered between launches.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Preferences {
-  pub sidebar_open: bool,
   /// Look for a new mTerm release when the app starts.
   pub check_updates: bool,
   pub theme: ThemeChoice,
@@ -91,14 +90,7 @@ pub struct Preferences {
 
 impl Default for Preferences {
   fn default() -> Self {
-    Self {
-      sidebar_open: true,
-      check_updates: true,
-      theme: ThemeChoice::System,
-      font: FontChoice::Default,
-      terminal_font_size: 12,
-      terminal_line_height: 16,
-    }
+    Self { check_updates: true, theme: ThemeChoice::System, font: FontChoice::Default, terminal_font_size: 12, terminal_line_height: 16 }
   }
 }
 
@@ -113,7 +105,6 @@ impl Preferences {
     for line in fs::read_to_string(path).unwrap_or_default().lines() {
       let Some((key, value)) = line.split_once('=') else { continue };
       match key.trim() {
-        "sidebar_open" => preferences.sidebar_open = value.trim().parse().unwrap_or(preferences.sidebar_open),
         "check_updates" => preferences.check_updates = value.trim().parse().unwrap_or(preferences.check_updates),
         "theme" => preferences.theme = ThemeChoice::from_code(value),
         "font" => preferences.font = FontChoice::from_code(value),
@@ -141,8 +132,7 @@ impl Preferences {
     fs::write(
       path,
       format!(
-        "sidebar_open={}\ncheck_updates={}\ntheme={}\nfont={}\nterminal_font_size={}\nterminal_line_height={}\n",
-        self.sidebar_open,
+        "check_updates={}\ntheme={}\nfont={}\nterminal_font_size={}\nterminal_line_height={}\n",
         self.check_updates,
         self.theme.code(),
         self.font.code(),

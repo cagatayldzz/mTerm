@@ -40,7 +40,9 @@ pub fn encode_key(key: &str, text: Option<&str>, mods: Modifiers, app_cursor: bo
     _ => None,
   };
   if mods.control {
-    return single.and_then(control_byte).map(|byte| vec![byte]);
+    let byte = if key == "space" { Some(0) } else { single.and_then(control_byte) };
+    // Control with Option sends the control byte behind an escape, like the Meta key in xterm.
+    return byte.map(|byte| if mods.alt { vec![0x1b, byte] } else { vec![byte] });
   }
   if key == "space" {
     return Some(b" ".to_vec());
@@ -55,6 +57,8 @@ pub fn encode_key(key: &str, text: Option<&str>, mods: Modifiers, app_cursor: bo
 pub fn paste_bytes(text: &str, bracketed: bool) -> Vec<u8> {
   let text = text.replace("\r\n", "\r").replace('\n', "\r");
   if bracketed {
+    // A pasted escape could end the bracket early and run the rest as typed commands.
+    let text = text.replace('\x1b', "");
     format!("\x1b[200~{text}\x1b[201~").into_bytes()
   } else {
     text.into_bytes()
@@ -88,7 +92,13 @@ fn control_byte(c: char) -> Option<u8> {
     '\\' => Some(0x1c),
     ']' => Some(0x1d),
     '^' => Some(0x1e),
-    '_' | '/' => Some(0x1f),
+    '_' | '/' | '-' | '7' => Some(0x1f),
+    '2' => Some(0),
+    '3' => Some(0x1b),
+    '4' => Some(0x1c),
+    '5' => Some(0x1d),
+    '6' => Some(0x1e),
+    '8' => Some(0x7f),
     _ => None,
   }
 }

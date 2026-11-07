@@ -90,14 +90,28 @@ impl AppModel {
     self.save(cx);
   }
 
-  pub fn set_check_updates(&mut self, value: bool, cx: &mut Context<Self>) {
-    self.preferences.check_updates = value;
+  /// Makes the terminal text bigger or smaller by `delta` points, keeping the line spacing in proportion.
+  pub fn zoom_terminal_font(&mut self, delta: i8, cx: &mut Context<Self>) {
+    let old = self.preferences.terminal_font_size;
+    let size = (old as i16 + delta as i16).clamp(9, 24) as u8;
+    if size == old {
+      return;
+    }
+    let height = (self.preferences.terminal_line_height as f32 * size as f32 / old as f32).round() as u8;
+    self.preferences.terminal_font_size = size;
+    self.preferences.terminal_line_height = height.clamp(12, 36).max(size);
     self.save(cx);
   }
 
-  /// Remembers whether the history sidebar was left open.
-  pub fn set_sidebar_open(&mut self, value: bool, cx: &mut Context<Self>) {
-    self.preferences.sidebar_open = value;
+  pub fn reset_terminal_font(&mut self, cx: &mut Context<Self>) {
+    let defaults = Preferences::default();
+    self.preferences.terminal_font_size = defaults.terminal_font_size;
+    self.preferences.terminal_line_height = defaults.terminal_line_height;
+    self.save(cx);
+  }
+
+  pub fn set_check_updates(&mut self, value: bool, cx: &mut Context<Self>) {
+    self.preferences.check_updates = value;
     self.save(cx);
   }
 
