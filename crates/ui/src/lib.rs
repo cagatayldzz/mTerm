@@ -4,6 +4,7 @@ mod assets;
 mod history;
 mod layout;
 mod model;
+mod selection;
 mod settings;
 mod tabs;
 mod terminal_view;

@@ -621,8 +621,28 @@ impl Workspace {
       }
       return;
     }
-    let Some(pane) = self.focused_pane() else { return };
     let keystroke = &event.keystroke;
+    if keystroke.modifiers.shift
+      && !keystroke.modifiers.control
+      && !keystroke.modifiers.alt
+      && !keystroke.modifiers.platform
+      && matches!(keystroke.key.as_str(), "up" | "down" | "left" | "right")
+    {
+      if let Some(id) = self.focused_pane_id() {
+        let palette = Self::palette(cx);
+        if let Some(pane) = self.panes.get_mut(&id) {
+          if let Some((anchor, end)) = pane.selection {
+            let snapshot = pane.session.snapshot(&palette);
+            let lines: Vec<_> = (0..snapshot.lines.len()).map(|line| snapshot.line_text(line)).collect();
+            pane.selection = Some((anchor, crate::selection::move_endpoint(&lines, end, &keystroke.key)));
+            cx.stop_propagation();
+            cx.notify();
+            return;
+          }
+        }
+      }
+    }
+    let Some(pane) = self.focused_pane() else { return };
     let modifiers = Modifiers {
       control: keystroke.modifiers.control,
       alt: keystroke.modifiers.alt,
@@ -746,6 +766,9 @@ impl Workspace {
         })
         .collect();
       lines.push(selected.trim_end().to_owned());
+    }
+    while lines.last().is_some_and(String::is_empty) {
+      lines.pop();
     }
     cx.write_to_clipboard(ClipboardItem::new_string(lines.join("\n")));
   }

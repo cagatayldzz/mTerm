@@ -64,48 +64,64 @@ impl Workspace {
         .items_center()
         .gap_2()
         .child(middle)
-        .child(Button::new("sessions-menu").icon(Icon::new(gpui_kit_assets::IconName::Layers)).ghost().xsmall().dropdown_menu(
-          move |mut menu, _, _| {
-            let new_workspace = workspace.clone();
-            menu = menu
-              .item(PopupMenuItem::new("New session").on_click(move |_, window, cx| {
-                let _ = new_workspace.update(cx, |this, cx| {
-                  this.new_session(cx);
-                  this.focus_handle.focus(window, cx);
-                  cx.notify();
-                });
-              }))
-              .separator();
-            for saved in &sessions {
-              let id = saved.id.clone();
-              let target = workspace.clone();
-              let label = if current.as_ref().is_some_and(|active| active.id == id) { format!("✓ {}", saved.name) } else { saved.name.clone() };
-              menu = menu.item(PopupMenuItem::new(label).on_click(move |_, window, cx| {
-                let _ = target.update(cx, |this, cx| this.select_session(&id, window, cx));
-              }));
-            }
-            if let Some(saved) = &current {
-              let rename_id = saved.id.clone();
-              let delete_id = saved.id.clone();
-              let pin_id = saved.id.clone();
-              let rename = workspace.clone();
-              let delete = workspace.clone();
-              let pin = workspace.clone();
+        .child(
+          Button::new("sessions-menu")
+            .text()
+            .w(px(24.))
+            .h(px(30.))
+            .text_color(theme.foreground)
+            .tooltip("Sessions")
+            .child(
+              div()
+                .id("sessions-icon")
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .hover(|style| style.opacity(0.6))
+                .child(Icon::new(gpui_kit_assets::IconName::Layers).with_size(gpui_kit::component::Size::Size(px(20.)))),
+            )
+            .dropdown_menu(move |mut menu, _, _| {
+              let new_workspace = workspace.clone();
               menu = menu
-                .separator()
-                .item(PopupMenuItem::new("Rename session").on_click(move |_, window, cx| {
-                  let _ = rename.update(cx, |this, cx| this.rename_session(rename_id.clone(), window, cx));
+                .item(PopupMenuItem::new("New session").on_click(move |_, window, cx| {
+                  let _ = new_workspace.update(cx, |this, cx| {
+                    this.new_session(cx);
+                    this.focus_handle.focus(window, cx);
+                    cx.notify();
+                  });
                 }))
-                .item(PopupMenuItem::new(if saved.pinned { "Unpin session" } else { "Pin session" }).on_click(move |_, window, cx| {
-                  let _ = pin.update(cx, |this, cx| this.toggle_session_pin(&pin_id, window, cx));
-                }))
-                .item(PopupMenuItem::new("Delete session").on_click(move |_, window, cx| {
-                  let _ = delete.update(cx, |this, cx| this.confirm_delete_session(delete_id.clone(), window, cx));
+                .separator();
+              for saved in &sessions {
+                let id = saved.id.clone();
+                let target = workspace.clone();
+                let label = if current.as_ref().is_some_and(|active| active.id == id) { format!("✓ {}", saved.name) } else { saved.name.clone() };
+                menu = menu.item(PopupMenuItem::new(label).on_click(move |_, window, cx| {
+                  let _ = target.update(cx, |this, cx| this.select_session(&id, window, cx));
                 }));
-            }
-            menu
-          },
-        ))
+              }
+              if let Some(saved) = &current {
+                let rename_id = saved.id.clone();
+                let delete_id = saved.id.clone();
+                let pin_id = saved.id.clone();
+                let rename = workspace.clone();
+                let delete = workspace.clone();
+                let pin = workspace.clone();
+                menu = menu
+                  .separator()
+                  .item(PopupMenuItem::new("Rename session").on_click(move |_, window, cx| {
+                    let _ = rename.update(cx, |this, cx| this.rename_session(rename_id.clone(), window, cx));
+                  }))
+                  .item(PopupMenuItem::new(if saved.pinned { "Unpin session" } else { "Pin session" }).on_click(move |_, window, cx| {
+                    let _ = pin.update(cx, |this, cx| this.toggle_session_pin(&pin_id, window, cx));
+                  }))
+                  .item(PopupMenuItem::new("Delete session").on_click(move |_, window, cx| {
+                    let _ = delete.update(cx, |this, cx| this.confirm_delete_session(delete_id.clone(), window, cx));
+                  }));
+              }
+              menu
+            }),
+        )
         .child(icon_button("open-settings", IconName::Settings, "Settings (⌘,)", |_, window, cx| {
           window.dispatch_action(Box::new(OpenSettings), cx)
         })),

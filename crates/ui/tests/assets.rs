@@ -4,6 +4,7 @@ use super::*;
 fn icons_are_thinned_and_other_assets_pass_through() {
   let icon = Assets.load("icons/panel-left-close.svg").unwrap().expect("the default icon exists");
   let svg = std::str::from_utf8(&icon).unwrap();
+  assert!(Assets.load("icons/layers.svg").unwrap().is_some());
   assert!(svg.contains("stroke-width=\"1\""));
   assert!(!svg.contains("stroke-width=\"2\""));
   // A missing asset is an error or nothing, never a made-up icon.

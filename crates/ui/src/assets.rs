@@ -9,7 +9,7 @@ pub struct Assets;
 
 impl AssetSource for Assets {
   fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
-    let Some(bytes) = gpui_kit_assets::Assets.load(path)? else { return Ok(None) };
+    let Some(bytes) = gpui_kit_assets::AllAssets.load(path)? else { return Ok(None) };
     if !path.ends_with(".svg") {
       return Ok(Some(bytes));
     }
@@ -20,7 +20,7 @@ impl AssetSource for Assets {
   }
 
   fn list(&self, path: &str) -> Result<Vec<SharedString>> {
-    gpui_kit_assets::Assets.list(path)
+    gpui_kit_assets::AllAssets.list(path)
   }
 }
 

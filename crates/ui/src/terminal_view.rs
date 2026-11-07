@@ -251,7 +251,15 @@ impl Workspace {
               if let Some((line, column)) = cell_at(bounds, event.position, cell_width, line_height) {
                 if let Some(pane) = this.panes.get_mut(&id) {
                   let position = (line.min(line_count.saturating_sub(1)), column.min(columns));
-                  pane.selection = Some((position, position));
+                  let text = pane.session.snapshot(&click_palette).line_text(position.0);
+                  pane.selection = if event.click_count >= 3 {
+                    let width = text.chars().map(|character| character.width().unwrap_or(0)).sum();
+                    Some(((position.0, 0), (position.0, width)))
+                  } else if event.click_count == 2 {
+                    crate::selection::word_range(&text, position.1).map(|(start, end)| ((position.0, start), (position.0, end)))
+                  } else {
+                    Some((position, position))
+                  };
                   cx.notify();
                 }
               }
@@ -359,8 +367,9 @@ impl Workspace {
       .when_some(selection, |this, (anchor, end)| {
         let (start, end) = if anchor < end { (anchor, end) } else { (end, anchor) };
         this.children((start.0..=end.0).filter_map(|line| {
+          let text_width: usize = snapshot.line_text(line).chars().map(|character| character.width().unwrap_or(0)).sum();
           let from = if line == start.0 { start.1 } else { 0 };
-          let to = if line == end.0 { end.1 } else { columns };
+          let to = (if line == end.0 { end.1 } else { columns }).min(text_width);
           (to > from).then(|| {
             div()
               .absolute()
