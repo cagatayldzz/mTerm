@@ -51,6 +51,7 @@ pub(crate) struct Pane {
   /// Fractional lines left over from smooth scrolling.
   pub scroll_remainder: f32,
   pub selection: Option<((usize, usize), (usize, usize))>,
+  pub selection_dragging: bool,
   pub hover_cell: Option<(usize, usize)>,
   wakeup_pending: Arc<AtomicBool>,
 }
@@ -293,6 +294,7 @@ impl Workspace {
             line_unreliable: false,
             scroll_remainder: 0.,
             selection: None,
+            selection_dragging: false,
             hover_cell: None,
             wakeup_pending,
           },

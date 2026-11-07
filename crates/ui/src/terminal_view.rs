@@ -15,13 +15,18 @@ use gpui_kit::{
 };
 use mterm_storage::FontChoice;
 use mterm_terminal::{Palette, Rgb, Snapshot};
-use std::path::{Path, PathBuf};
+use std::{
+  cell::Cell,
+  path::{Path, PathBuf},
+  rc::Rc,
+};
 use unicode_width::UnicodeWidthChar as _;
 
 const FONT_FAMILY: &str = "Menlo";
 const PADDING: Pixels = px(12.);
 const DIVIDER_WIDTH: Pixels = px(1.);
 const PANE_HEADER_HEIGHT: Pixels = px(28.);
+const SCROLLBAR_INSET: Pixels = px(4.);
 /// How dark the veil over an unfocused split pane is.
 const PANE_VEIL: f32 = 0.18;
 
@@ -42,6 +47,21 @@ impl Render for DividerDrag {
 struct Divider {
   bounds: Bounds<Pixels>,
   drag: DividerDrag,
+}
+
+#[derive(Clone)]
+struct ScrollbarDrag {
+  pane: PaneId,
+  start_y: Rc<Cell<Pixels>>,
+  scrolled: usize,
+  history_size: usize,
+  travel: Pixels,
+}
+
+impl Render for ScrollbarDrag {
+  fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    Empty
+  }
 }
 
 fn color(rgb: Rgb) -> Hsla {
@@ -144,6 +164,16 @@ impl Workspace {
           }
         }
       }))
+      .on_drag_move(cx.listener(|this, event: &DragMoveEvent<ScrollbarDrag>, _, cx| {
+        let drag = event.drag(cx);
+        let delta = f32::from(event.event.position.y - drag.start_y.get()) / f32::from(drag.travel);
+        let target = (drag.scrolled as f32 - delta * drag.history_size as f32).round().clamp(0., drag.history_size as f32) as usize;
+        if let Some(pane) = this.panes.get_mut(&drag.pane) {
+          if pane.session.scroll_to(target) {
+            cx.notify();
+          }
+        }
+      }))
       .children(dividers.into_iter().enumerate().map(move |(index, divider)| {
         let bounds = divider.bounds;
         let vertical = divider.drag.split == Split::Vertically;
@@ -197,6 +227,12 @@ impl Workspace {
     let selection = pane.selection;
     let columns = snapshot.columns;
     let line_count = snapshot.lines.len();
+    let track_height = (bounds.size.height - header_height - SCROLLBAR_INSET * 2.).max(px(0.));
+    let thumb_height = (track_height * (line_count as f32 / (line_count + snapshot.history_size).max(1) as f32)).max(px(28.)).min(track_height);
+    let travel = track_height - thumb_height;
+    let thumb_top = if snapshot.history_size > 0 { travel * (1. - snapshot.scrolled as f32 / snapshot.history_size as f32) } else { px(0.) };
+    let has_scrollbar = snapshot.history_size > 0 && travel > px(0.);
+    let scrollbar_start = Rc::new(Cell::new(px(0.)));
     let hovered = if window.modifiers().platform {
       content_bounds.get().and_then(|bounds| cell_at(bounds, window.mouse_position(), cell_width, line_height)).and_then(|(line, column)| {
         let target = snapshot.link_at(line, column)?;
@@ -227,7 +263,7 @@ impl Workspace {
       .on_mouse_move(cx.listener(move |this, event: &MouseMoveEvent, window, cx| {
         if event.pressed_button == Some(MouseButton::Left) && !cx.has_active_drag() {
           if let (Some(bounds), Some(pane)) = (move_bounds.get(), this.panes.get_mut(&id)) {
-            if let Some((anchor, _)) = pane.selection {
+            if let Some((anchor, _)) = pane.selection.filter(|_| pane.selection_dragging) {
               let x = f32::from(event.position.x - bounds.origin.x - PADDING);
               let y = f32::from(event.position.y - bounds.origin.y - PADDING);
               let line = (y / f32::from(line_height)).floor().max(0.) as usize;
@@ -235,6 +271,11 @@ impl Workspace {
               pane.selection = Some((anchor, (line.min(line_count.saturating_sub(1)), column.min(columns))));
               cx.notify();
             }
+          }
+        }
+        if event.pressed_button != Some(MouseButton::Left) {
+          if let Some(pane) = this.panes.get_mut(&id) {
+            pane.selection_dragging = false;
           }
         }
         if window.modifiers().platform {
@@ -255,6 +296,20 @@ impl Workspace {
             return;
           }
           this.focus_pane(id, window, cx);
+          if let Some(pane) = this.panes.get_mut(&id) {
+            pane.selection_dragging = false;
+          }
+          if has_scrollbar {
+            if let Some(content) = click_bounds.get() {
+              let top = content.origin.y + SCROLLBAR_INSET + thumb_top;
+              if event.position.x >= content.origin.x + content.size.width - px(14.)
+                && event.position.y >= top
+                && event.position.y <= top + thumb_height
+              {
+                return;
+              }
+            }
+          }
           if !event.modifiers.platform {
             if let Some(bounds) = click_bounds.get() {
               if let Some((line, column)) = cell_at(bounds, event.position, cell_width, line_height) {
@@ -271,6 +326,7 @@ impl Workspace {
                       crate::selection::word_range(&text, position.1).map(|(start, end)| ((position.0, start), (position.0, end)))
                     }
                   };
+                  pane.selection_dragging = pane.selection.is_some();
                   cx.notify();
                 }
               }
@@ -287,8 +343,27 @@ impl Workspace {
           }
         }),
       )
+      .on_mouse_up(
+        MouseButton::Left,
+        cx.listener(move |this, _, _, _| {
+          if let Some(pane) = this.panes.get_mut(&id) {
+            pane.selection_dragging = false;
+          }
+        }),
+      )
+      .on_mouse_up_out(
+        MouseButton::Left,
+        cx.listener(move |this, _, _, _| {
+          if let Some(pane) = this.panes.get_mut(&id) {
+            pane.selection_dragging = false;
+          }
+        }),
+      )
       .on_mouse_down(MouseButton::Right, cx.listener(move |this, _, window, cx| this.focus_pane(id, window, cx)))
       .on_drop(cx.listener(move |this, paths: &ExternalPaths, window, cx| {
+        if let Some(pane) = this.panes.get_mut(&id) {
+          pane.selection_dragging = false;
+        }
         let paths = match mterm_storage::prepare_dropped_paths(paths.paths()) {
           Ok(paths) => paths,
           Err(error) => {
@@ -308,8 +383,9 @@ impl Workspace {
         let lines = pane.scroll_remainder.trunc();
         if lines != 0. {
           pane.scroll_remainder -= lines;
-          pane.session.scroll(lines as i32);
-          cx.notify();
+          if pane.session.scroll(lines as i32) {
+            cx.notify();
+          }
         }
       }))
       // Fits the PTY to the space this pane was given.
@@ -394,6 +470,34 @@ impl Workspace {
       })
       // Panes other than the focused one sit under a lighter veil of the same kind.
       .when(split && !focused, |this| this.child(div().absolute().top(header_height).left_0().right_0().bottom_0().bg(black().opacity(PANE_VEIL))))
+      .when(has_scrollbar, |this| {
+        let drag = ScrollbarDrag { pane: id, start_y: scrollbar_start, scrolled: snapshot.scrolled, history_size: snapshot.history_size, travel };
+        this.child(
+          div()
+            .id(("scrollbar", id))
+            .absolute()
+            .right_0()
+            .top(header_height + SCROLLBAR_INSET + thumb_top)
+            .w(px(14.))
+            .h(thumb_height)
+            .group("terminal-scrollbar")
+            .cursor_pointer()
+            .on_drag(drag, |drag, _, window, cx| {
+              drag.start_y.set(window.mouse_position().y);
+              cx.new(|_| drag.clone())
+            })
+            .child(
+              div()
+                .absolute()
+                .right(SCROLLBAR_INSET)
+                .w(px(6.))
+                .h_full()
+                .rounded_full()
+                .bg(color(metrics.palette.foreground).opacity(0.35))
+                .group_hover("terminal-scrollbar", |style| style.bg(color(metrics.palette.foreground).opacity(0.65))),
+            ),
+        )
+      })
       .when(split, |this| this.child(self.render_pane_header(id, title, focused, cx)))
       .context_menu(move |menu, _, _| {
         menu

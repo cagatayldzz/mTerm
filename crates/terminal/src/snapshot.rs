@@ -29,6 +29,8 @@ pub struct Snapshot {
   pub columns: usize,
   /// Lines scrolled back from the bottom; `0` follows the live output.
   pub scrolled: usize,
+  /// Number of lines available above the live screen.
+  pub history_size: usize,
   /// Explicit OSC 8 hyperlink targets indexed by viewport cell.
   pub hyperlinks: Vec<Vec<Option<String>>>,
 }

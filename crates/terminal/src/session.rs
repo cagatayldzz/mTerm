@@ -233,8 +233,21 @@ impl Session {
   }
 
   /// Scrolls the history view; positive lines go back in time.
-  pub fn scroll(&self, lines: i32) {
-    self.term.lock().scroll_display(Scroll::Delta(lines));
+  pub fn scroll(&self, lines: i32) -> bool {
+    let mut term = self.term.lock();
+    let previous = term.grid().display_offset();
+    term.scroll_display(Scroll::Delta(lines));
+    term.grid().display_offset() != previous
+  }
+
+  /// Moves to a history offset, returning whether the viewport changed.
+  pub fn scroll_to(&self, offset: usize) -> bool {
+    let mut term = self.term.lock();
+    let previous = term.grid().display_offset();
+    let target = offset.min(term.grid().history_size());
+    let delta = (target as i64 - previous as i64).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+    term.scroll_display(Scroll::Delta(delta));
+    term.grid().display_offset() != previous
   }
 
   pub fn modes(&self) -> Modes {
@@ -299,7 +312,7 @@ impl Session {
       rows[cursor.line][cursor.column].invert(palette);
     }
     let lines = rows.iter().map(spans).collect();
-    Snapshot { lines, cursor, columns, scrolled: offset, hyperlinks }
+    Snapshot { lines, cursor, columns, scrolled: offset, history_size: term.grid().history_size(), hyperlinks }
   }
 }
 

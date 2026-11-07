@@ -36,6 +36,20 @@ fn wait_for_screen(session: &Session, ready: impl Fn(&mterm_terminal::Snapshot) 
 }
 
 #[test]
+fn scrolling_tracks_history_and_reports_viewport_changes() {
+  let (session, receiver) = run("i=0; while [ $i -lt 30 ]; do echo line$i; i=$((i + 1)); done");
+  wait_for_exit(&receiver);
+  wait_for_screen(&session, |snapshot| snapshot.history_size > 0);
+  let history = session.snapshot(&Palette::light()).history_size;
+  assert!(session.scroll_to(usize::MAX));
+  assert_eq!(session.snapshot(&Palette::light()).scrolled, history);
+  assert!(!session.scroll(1));
+  assert!(session.scroll_to(0));
+  assert!(!session.scroll_to(0));
+  assert_eq!(session.snapshot(&Palette::light()).scrolled, 0);
+}
+
+#[test]
 fn program_output_reaches_the_snapshot() {
   let (session, receiver) = run("printf 'hello\\n\\033[31mred\\033[0m'");
   wait_for_exit(&receiver);
