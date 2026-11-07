@@ -34,8 +34,10 @@ jobs:
         with:
           bun-version: 1.4.4
       - run: rustup default stable
+      - run: bun install --frozen-lockfile
       - name: Check scripts and formatting
         run: |
+          bun run typecheck
           bun test scripts
           cargo fmt --all -- --check
       - uses: Swatinem/rust-cache@v2

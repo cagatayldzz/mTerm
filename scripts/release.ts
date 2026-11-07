@@ -7,6 +7,11 @@ type Commit = { sha: string; subject: string };
 type NoteItem = { id: number; section: string; summary: string };
 type NotesContext = { items: NoteItem[]; commits: Commit[]; repository: string; tag: string; previousTag: string | null };
 type Bump = "major" | "minor" | "patch";
+type ApiResponse = {
+  status?: string;
+  output?: { content?: { type?: string; text?: string }[] }[];
+  usage?: { input_tokens: number; output_tokens: number };
+};
 
 export const sections = ["New Features", "Bug Fixes", "Documentation", "Chores"];
 export const model = "gpt-4o-mini";
@@ -81,7 +86,7 @@ export async function generateNotes(commits: Commit[], apiKey: string | undefine
     // Do not print API response bodies; they can contain sensitive request details.
     throw new Error(`OpenAI request failed (HTTP ${response.status}). No release was published.`);
   }
-  const result = await response.json();
+  const result = await response.json() as ApiResponse;
   if (result.status !== "completed") throw new Error("OpenAI did not complete the release notes. No release was published.");
   const output = (result.output ?? []).flatMap((item) => item.content ?? [])
     .filter((item) => item.type === "output_text").map((item) => item.text).join("");
@@ -243,7 +248,9 @@ async function runCi(command: "prepare" | "notes"): Promise<void> {
       .replace(/(<key>CFBundleShortVersionString<\/key>\s*<string>)[^<]+/, (_, prefix) => `${prefix}${version}`)
       .replace(/(<key>CFBundleVersion<\/key>\s*<string>)[^<]+/, (_, prefix) => `${prefix}${process.env.GITHUB_RUN_NUMBER}`);
     writeFileSync("apps/mterm/macos/Info.plist", plist);
-    appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\ntag=${tag}\nsha=${sha}\n`);
+    const githubOutput = process.env.GITHUB_OUTPUT;
+    if (!githubOutput) throw new Error("GITHUB_OUTPUT is required to prepare a release.");
+    appendFileSync(githubOutput, `version=${version}\ntag=${tag}\nsha=${sha}\n`);
     console.log(`Preparing ${tag} (${bump}) from ${commits.length} commits.`);
   } else if (command === "notes") {
     const context = JSON.parse(readFileSync("dist/release-context.json", "utf8"));

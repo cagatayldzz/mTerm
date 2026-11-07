@@ -9,10 +9,12 @@
 
 ## Commands
 
+Run `bun install --frozen-lockfile` after cloning to install the TypeScript checker and Bun types.
+
 ```sh
 bun run dev       # debug build, then launch dist/mTerm.app
 bun run build     # release build → dist/mTerm.app
-bun run check     # formatting, clippy, and tests
+bun run check     # TypeScript, formatting, clippy, and tests
 bun run test      # tests only
 bun run update    # cargo update
 bun run commit    # git add -A && oco --yes
@@ -23,7 +25,7 @@ All build commands call `scripts/app.sh`:
 ```sh
 scripts/app.sh --dev                     # debug build, then launch
 scripts/app.sh [debug|release] --build   # build dist/mTerm.app (default: debug)
-scripts/app.sh --check                   # cargo fmt --check, clippy -D warnings, tests
+scripts/app.sh --check                   # TypeScript, cargo fmt, clippy, and tests
 ```
 
 ## Workspace packages

@@ -39,6 +39,7 @@ command -v cargo >/dev/null 2>&1 || fail "Rust was not found. Install the Rust t
 
 # Formatting, clippy and tests.
 run_check() {
+  bun run typecheck
   bun test scripts
   cargo fmt --all -- --check
   cargo clippy --locked --workspace --all-targets -- -D warnings
