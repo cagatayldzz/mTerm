@@ -52,6 +52,11 @@ actions!(
   ]
 );
 
+/// Brings the open window at this position (counting from 0) to the front.
+#[derive(Clone, PartialEq, Action)]
+#[action(namespace = mterm, no_json)]
+pub struct SelectWindow(pub usize);
+
 /// Creates the model every window shares and, when enabled, checks for a new release.
 pub fn init(cx: &mut App) {
   if let Err(error) = cx.text_system().add_fonts(vec![

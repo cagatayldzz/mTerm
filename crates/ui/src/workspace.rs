@@ -671,7 +671,8 @@ impl Workspace {
     self.focused_pane_id().and_then(|id| self.panes.get(&id))
   }
 
-  pub(crate) fn title(&self) -> String {
+  /// The title of the focused pane, which names this window in the Window menu.
+  pub fn title(&self) -> String {
     self.focused_pane().map(|pane| pane.title.clone()).unwrap_or_else(|| "mTerm".into())
   }
 

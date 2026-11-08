@@ -8,9 +8,19 @@ use mterm_storage::{directory_from_url, WindowSize};
 use mterm_ui::{
   Assets, CheckForUpdates, ClearHistory, ClearScreen, ClosePane, Copy, DecreaseFontSize, Find, FindNext, FindPrevious, Hide, HideOthers,
   IncreaseFontSize, Minimize, NewTab, NewWindow, NextPane, NextTab, OpenSettings, Paste, PreviousPane, PreviousTab, Quit, ResetFontSize, SelectAll,
-  ShowAll, SplitHorizontally, SplitVertically, Workspace, Zoom, CONTEXT, TOOLBAR_HEIGHT,
+  SelectWindow, ShowAll, SplitHorizontally, SplitVertically, Workspace, Zoom, CONTEXT, TOOLBAR_HEIGHT,
 };
 use std::{path::PathBuf, time::Duration};
+
+/// The open windows in the order they were opened, for the numbered entries of the Window menu.
+#[derive(Default)]
+struct OpenWindows {
+  windows: Vec<(AnyWindowHandle, Entity<Workspace>)>,
+  /// The titles and front state the menus were last built from.
+  shown: Vec<(String, bool)>,
+}
+
+impl Global for OpenWindows {}
 
 /// How far a new window is offset from the one it opens next to.
 const CASCADE: f32 = 28.;
@@ -29,6 +39,7 @@ fn main() {
     gpui_kit::init(cx);
     mterm_ui::init(cx);
     cx.activate(true);
+    cx.set_global(OpenWindows::default());
     bind_keys(cx);
 
     cx.on_action(|_: &Quit, cx| cx.quit());
@@ -36,11 +47,13 @@ fn main() {
     cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
     cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
     cx.on_action(|_: &NewWindow, cx| open_window(None, cx));
+    cx.on_action(|action: &SelectWindow, cx| select_window(action.0, cx));
     // Closing the last window quits.
     cx.on_window_closed(|cx, _| {
       if cx.windows().is_empty() {
         cx.quit();
       }
+      refresh_window_menu(cx);
     })
     .detach();
     cx.on_app_quit(|cx| {
@@ -104,7 +117,7 @@ fn open_window(directory: Option<PathBuf>, cx: &mut App) {
     titlebar: Some(TitlebarOptions { traffic_light_position: Some(point(px(18.), TOOLBAR_HEIGHT / 2. - px(6.))), ..TitleBar::title_bar_options() }),
     ..TitleBar::window_options()
   };
-  gpui_kit::open_window(options, cx, |window, cx| {
+  let (handle, workspace) = gpui_kit::open_window(options, cx, |window, cx| {
     window.on_window_should_close(cx, |window, _| {
       save_window_size(window);
       true
@@ -119,10 +132,43 @@ fn open_window(directory: Option<PathBuf>, cx: &mut App) {
         }
       })
       .detach();
+      cx.observe_window_activation(window, |_, _, cx| cx.defer(refresh_window_menu)).detach();
       Workspace::new(directory.clone(), window, cx)
     })
   })
   .expect("Failed to open the mTerm window");
+  cx.global_mut::<OpenWindows>().windows.push((handle, workspace.clone()));
+  // The menu follows each window's title, and which window is in front.
+  cx.observe(&workspace, |_, cx| refresh_window_menu(cx)).detach();
+  refresh_window_menu(cx);
+}
+
+/// Rebuilds the menu bar with one numbered entry per open window, the front one checked.
+fn refresh_window_menu(cx: &mut App) {
+  let open = cx.windows();
+  cx.global_mut::<OpenWindows>().windows.retain(|(handle, _)| open.contains(handle));
+  let windows: Vec<_> = cx.global::<OpenWindows>().windows.clone();
+  let entries: Vec<(String, bool)> = windows
+    .iter()
+    .map(|(handle, workspace)| (workspace.read(cx).title(), handle.update(cx, |_, window, _| window.is_window_active()).unwrap_or(false)))
+    .collect();
+  if cx.global::<OpenWindows>().shown == entries {
+    return;
+  }
+  // The Dock lists the native title of each window; the number is the shortcut that selects it.
+  for (index, ((handle, _), (title, _))) in windows.iter().zip(&entries).enumerate() {
+    let title = if index < 9 { format!("{title} — ⌥⌘{}", index + 1) } else { title.clone() };
+    let _ = handle.update(cx, |_, window, _| window.set_window_title(&title));
+  }
+  set_menus(cx, &entries);
+  cx.global_mut::<OpenWindows>().shown = entries;
+}
+
+fn select_window(index: usize, cx: &mut App) {
+  let handle = cx.global::<OpenWindows>().windows.get(index).map(|(handle, _)| *handle);
+  if let Some(handle) = handle {
+    let _ = handle.update(cx, |_, window, _| window.activate_window());
+  }
 }
 
 fn save_window_size(window: &Window) {
@@ -134,6 +180,12 @@ fn save_window_size(window: &Window) {
 }
 
 fn bind_keys(cx: &mut App) {
+  cx.bind_keys(
+    ["alt-cmd-1", "alt-cmd-2", "alt-cmd-3", "alt-cmd-4", "alt-cmd-5", "alt-cmd-6", "alt-cmd-7", "alt-cmd-8", "alt-cmd-9"]
+      .into_iter()
+      .enumerate()
+      .map(|(index, keys)| KeyBinding::new(keys, SelectWindow(index), None)),
+  );
   cx.bind_keys([
     KeyBinding::new("cmd-q", Quit, None),
     KeyBinding::new("cmd-h", Hide, None),
@@ -171,7 +223,7 @@ fn bind_keys(cx: &mut App) {
       let _ = window.update(cx, |_, window, _| window.zoom_window());
     }
   });
-  set_menus(cx);
+  set_menus(cx, &[]);
   cx.set_dock_menu(vec![
     MenuItem::action("New Window", NewWindow),
     MenuItem::action("New Tab", NewTab),
@@ -180,7 +232,22 @@ fn bind_keys(cx: &mut App) {
   ]);
 }
 
-fn set_menus(cx: &mut App) {
+/// `windows` holds the title and front state of each open window, in opening order.
+fn set_menus(cx: &mut App, windows: &[(String, bool)]) {
+  let mut window_items = vec![MenuItem::action("Minimize", Minimize), MenuItem::action("Zoom", Zoom)];
+  if !windows.is_empty() {
+    window_items.push(MenuItem::separator());
+  }
+  for (index, (title, front)) in windows.iter().enumerate().take(9) {
+    let name = if title.is_empty() { "mTerm" } else { title.as_str() };
+    window_items.push(MenuItem::Action {
+      name: name.to_string().into(),
+      action: Box::new(SelectWindow(index)),
+      os_action: None,
+      checked: *front,
+      disabled: false,
+    });
+  }
   cx.set_menus([
     Menu::new("mTerm").items([
       MenuItem::action("Settings…", OpenSettings),
@@ -226,6 +293,6 @@ fn set_menus(cx: &mut App) {
       MenuItem::action("Show Next Tab", NextTab),
       MenuItem::action("Show Previous Tab", PreviousTab),
     ]),
-    Menu::new("Window").items([MenuItem::action("Minimize", Minimize), MenuItem::action("Zoom", Zoom)]),
+    Menu::new("Window").items(window_items),
   ]);
 }
