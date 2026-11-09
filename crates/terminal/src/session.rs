@@ -88,7 +88,9 @@ impl EventListener for Proxy {
       Event::Title(title) => (self.notify)(SessionEvent::Title(title)),
       Event::ResetTitle => (self.notify)(SessionEvent::Title(String::new())),
       Event::ClipboardStore(_, text) => (self.notify)(SessionEvent::ClipboardStore(text)),
-      Event::Exit | Event::ChildExit(_) => (self.notify)(SessionEvent::Exit),
+      // ChildExit arrives before the PTY's remaining output is drained. Term::exit sends Exit
+      // after that drain, so consumers can safely read the final screen before closing the pane.
+      Event::Exit => (self.notify)(SessionEvent::Exit),
       // Replies the program asked for, such as cursor position reports.
       Event::PtyWrite(text) => {
         if let Some(sender) = self.sender.get() {

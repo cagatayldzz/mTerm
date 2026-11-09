@@ -226,8 +226,8 @@ fn text_that_wraps_is_marked_and_separate_lines_are_not() {
 fn hyperlinks_report_the_cells_they_cover() {
   let (session, receiver) = run("printf 'go \\033]8;;https://example.org/\\007here\\033]8;;\\007 now'");
   wait_for_exit(&receiver);
-  wait_for_screen(&session, |snapshot| snapshot.text().contains("now"));
   let snapshot = session.snapshot(&Palette::light());
+  assert!(snapshot.text().contains("now"));
   assert_eq!(snapshot.link_range_at(0, 5), Some(("https://example.org/".to_owned(), 3, 7)));
   assert_eq!(snapshot.link_range_at(0, 8), None);
 }
