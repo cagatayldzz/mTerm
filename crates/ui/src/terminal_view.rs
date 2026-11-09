@@ -387,7 +387,11 @@ impl Workspace {
               if let Some((line, column)) = cell_at(bounds, event.position, cell_width, line_height) {
                 if let Some(pane) = this.panes.get_mut(&id) {
                   let position = (line.min(line_count.saturating_sub(1)), column.min(columns));
-                  pane.selection = if event.click_count < 2 {
+                  let extend = event.modifiers.shift && event.click_count < 2;
+                  pane.selection = if let (true, Some(selection)) = (extend, pane.selection) {
+                    let text = pane.session.snapshot(&click_palette).line_text(position.0);
+                    Some(crate::selection::extend_selection(&text, selection, position))
+                  } else if event.click_count < 2 {
                     Some((position, position))
                   } else {
                     let text = pane.session.snapshot(&click_palette).line_text(position.0);

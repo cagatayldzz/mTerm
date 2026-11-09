@@ -31,6 +31,26 @@ pub(crate) fn word_range(text: &str, column: usize) -> Option<(usize, usize)> {
   Some((cells[first].0, cells[last].1))
 }
 
+/// Extends `selection` to `position`, like Shift+click in a browser. After a word or line was
+/// selected the far edge snaps to the clicked word; after a plain click it follows the pointer.
+/// `text` is the clicked line.
+pub(crate) fn extend_selection(
+  text: &str,
+  selection: ((usize, usize), (usize, usize)),
+  position: (usize, usize),
+) -> ((usize, usize), (usize, usize)) {
+  let (start, end) = if selection.0 <= selection.1 { selection } else { (selection.1, selection.0) };
+  let by_word = start != end;
+  let word = if by_word { word_range(text, position.1) } else { None };
+  if position < start {
+    let focus = word.map_or(position, |(first, _)| (position.0, first));
+    (end, focus)
+  } else {
+    let focus = word.map_or(position, |(_, last)| (position.0, last));
+    (start, focus)
+  }
+}
+
 pub(crate) fn move_endpoint(lines: &[String], (line, column): (usize, usize), key: &str) -> (usize, usize) {
   if lines.is_empty() {
     return (0, 0);
