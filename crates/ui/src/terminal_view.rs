@@ -202,7 +202,6 @@ impl Workspace {
         let ratio = (fraction.clamp(0.1, 0.9) * 10000.) as u16;
         if let Some(tab) = this.tabs.get_mut(this.active) {
           if tab.root.set_ratio(&drag.path, ratio) {
-            this.save_layout();
             cx.notify();
           }
         }

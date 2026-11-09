@@ -134,18 +134,22 @@ pub(crate) fn render_settings(model: &Entity<AppModel>, page: SettingsPage, epoc
       ),
     );
 
-  let about = SettingPage::new("About").icon(IconName::Info).group(SettingGroup::new().title("mTerm").item(SettingItem::render(move |_, _, _| {
-    div().w_full().text_sm().child(
-      DescriptionList::new()
-        .columns(1)
-        .bordered(false)
-        .item("Version", APP_VERSION, 1)
-        .item("Repository", mterm_updater::repository_slug().unwrap_or("—"), 1)
-        .item("Data folder", mterm_storage::data_dir().display().to_string(), 1),
-    )
-  })));
+  let about_foreground = theme.foreground;
+  let about = SettingPage::new("About").icon(IconName::Info).description("About this mTerm installation.").group(
+    SettingGroup::new().title("mTerm").item(SettingItem::render(move |_, _, _| {
+      div().w_full().text_sm().font_weight(FontWeight::NORMAL).text_color(about_foreground).child(
+        DescriptionList::new()
+          .columns(1)
+          .bordered(false)
+          .item("Version", APP_VERSION, 1)
+          .item("Repository", mterm_updater::repository_slug().unwrap_or("—"), 1)
+          .item("Data folder", mterm_storage::data_dir().display().to_string(), 1),
+      )
+    })),
+  );
 
-  div().id("settings").size_full().bg(theme.background).child(
+  // The menu and its entries show the arrow; controls with their own cursor (the search field) keep it.
+  div().id("settings").size_full().cursor_default().bg(theme.background).child(
     Settings::new(SharedString::from(format!("settings-{epoch}")))
       .sidebar_width(px(180.))
       .default_selected_index(SelectIndex { page_ix: page.index(), group_ix: None })
@@ -171,7 +175,7 @@ fn theme_options() -> Vec<(SharedString, SharedString)> {
 }
 
 fn caption(text: impl Into<SharedString>, cx: &App) -> Div {
-  div().text_size(px(11.)).text_color(cx.theme().muted_foreground).child(text.into())
+  div().text_sm().text_color(cx.theme().muted_foreground).child(text.into())
 }
 
 /// The mTerm update status and its actions.
@@ -189,7 +193,7 @@ fn update_panel(model: &Entity<AppModel>, cx: &App) -> AnyElement {
       button
     }
   };
-  let row = || h_flex().gap_3().items_center().flex_wrap();
+  let row = || h_flex().gap_3().items_center().flex_wrap().text_sm().text_color(theme.foreground);
 
   if !APP_UPDATES_ENABLED {
     return caption("Updates are turned off in development builds. Install a release build of mTerm to update it.", cx).into_any_element();
@@ -225,7 +229,7 @@ fn update_panel(model: &Entity<AppModel>, cx: &App) -> AnyElement {
             .p_3()
             .rounded(px(8.))
             .bg(theme.foreground.opacity(0.04))
-            .text_size(px(12.))
+            .text_sm()
             .text_color(theme.muted_foreground)
             .max_h(px(180.))
             .overflow_hidden()

@@ -6,9 +6,8 @@ use crate::{
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
   component::{
-    button::{Button, ButtonVariants},
     h_flex,
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::{ContextMenuExt as _, PopupMenuItem},
     ActiveTheme, Icon, IconName, Sizable, ThemeColor, TitleBar,
   },
   *,
@@ -22,11 +21,8 @@ impl Workspace {
   pub(crate) fn render_band(&self, cx: &mut Context<Self>) -> impl IntoElement {
     let theme = cx.theme().clone();
     let background = rgb(Self::palette(cx).background.hex());
-    let sessions = self.saved_sessions.clone();
-    let current = self.tabs.get(self.active).map(|tab| tab.saved.clone());
-    let workspace = cx.weak_entity();
 
-    let middle = if self.active_tab_indices().len() > 1 {
+    let middle = if self.tabs.len() > 1 {
       h_flex()
         .flex_1()
         .min_w_0()
@@ -64,64 +60,6 @@ impl Workspace {
         .items_center()
         .gap_2()
         .child(middle)
-        .child(
-          Button::new("sessions-menu")
-            .text()
-            .w(px(24.))
-            .h(px(30.))
-            .text_color(theme.foreground)
-            .tooltip("Sessions")
-            .child(
-              div()
-                .id("sessions-icon")
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .hover(|style| style.opacity(0.6))
-                .child(Icon::new(gpui_kit_assets::IconName::Layers).with_size(gpui_kit::component::Size::Size(px(20.)))),
-            )
-            .dropdown_menu(move |mut menu, _, _| {
-              let new_workspace = workspace.clone();
-              menu = menu
-                .item(PopupMenuItem::new("New session").on_click(move |_, window, cx| {
-                  let _ = new_workspace.update(cx, |this, cx| {
-                    this.new_session(cx);
-                    this.focus_handle.focus(window, cx);
-                    cx.notify();
-                  });
-                }))
-                .separator();
-              for saved in &sessions {
-                let id = saved.id.clone();
-                let target = workspace.clone();
-                let label = if current.as_ref().is_some_and(|active| active.id == id) { format!("✓ {}", saved.name) } else { saved.name.clone() };
-                menu = menu.item(PopupMenuItem::new(label).on_click(move |_, window, cx| {
-                  let _ = target.update(cx, |this, cx| this.select_session(&id, window, cx));
-                }));
-              }
-              if let Some(saved) = &current {
-                let rename_id = saved.id.clone();
-                let delete_id = saved.id.clone();
-                let pin_id = saved.id.clone();
-                let rename = workspace.clone();
-                let delete = workspace.clone();
-                let pin = workspace.clone();
-                menu = menu
-                  .separator()
-                  .item(PopupMenuItem::new("Rename session").on_click(move |_, window, cx| {
-                    let _ = rename.update(cx, |this, cx| this.rename_session(rename_id.clone(), window, cx));
-                  }))
-                  .item(PopupMenuItem::new(if saved.pinned { "Unpin session" } else { "Pin session" }).on_click(move |_, window, cx| {
-                    let _ = pin.update(cx, |this, cx| this.toggle_session_pin(&pin_id, window, cx));
-                  }))
-                  .item(PopupMenuItem::new("Delete session").on_click(move |_, window, cx| {
-                    let _ = delete.update(cx, |this, cx| this.confirm_delete_session(delete_id.clone(), window, cx));
-                  }));
-              }
-              menu
-            }),
-        )
         .child(icon_button("open-settings", IconName::Settings, "Settings (⌘,)", |_, window, cx| {
           window.dispatch_action(Box::new(OpenSettings), cx)
         })),
@@ -130,15 +68,15 @@ impl Workspace {
 
   fn render_tabs(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
     let theme = cx.theme().clone();
-    let indices = self.active_tab_indices();
     self
       .tabs
       .iter()
       .enumerate()
-      .filter(|(index, _)| indices.contains(index))
       .map(|(index, tab)| {
         let active = index == self.active;
-        let title = self.panes.get(&tab.focused).map(|pane| pane.title.clone()).unwrap_or_default();
+        let title = self.tab_title(tab);
+        let pinned = tab.pinned;
+        let workspace = cx.weak_entity();
         h_flex()
           .id(("tab", index))
           .flex_1()
@@ -155,22 +93,48 @@ impl Workspace {
           .when(active, |this| this.bg(theme.secondary).text_color(theme.foreground))
           .when(!active, |this| this.text_color(theme.muted_foreground).hover(|style| style.bg(theme.secondary.opacity(0.5))))
           .on_click(cx.listener(move |this, _, window, cx| this.select_tab(index, window, cx)))
+          .when(pinned, |this| this.child(Icon::new(gpui_kit_assets::IconName::Pin).small()))
           .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(title))
-          .child(
-            div()
-              .id(("tab-close", index))
-              .size(px(20.))
-              .flex()
-              .items_center()
-              .justify_center()
-              .rounded_sm()
-              .hover(|style| style.bg(theme.muted_foreground.opacity(0.2)))
-              .on_click(cx.listener(move |this, _, window, cx| {
-                this.close_tab(index, window);
-                cx.notify();
-              }))
-              .child(Icon::new(IconName::Close).small()),
-          )
+          .when(!pinned, |this| {
+            this.child(
+              div()
+                .id(("tab-close", index))
+                .size(px(20.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_sm()
+                .hover(|style| style.bg(theme.muted_foreground.opacity(0.2)))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                  cx.stop_propagation();
+                  this.close_tab(index, window);
+                  cx.notify();
+                }))
+                .child(Icon::new(IconName::Close).small()),
+            )
+          })
+          .context_menu(move |menu, _, _| {
+            let item = |label: &'static str, action: fn(&mut Workspace, usize, &mut Window, &mut Context<Workspace>)| {
+              let workspace = workspace.clone();
+              PopupMenuItem::new(label).on_click(move |_, window, cx| {
+                let _ = workspace.update(cx, |this, cx| {
+                  action(this, index, window, cx);
+                  this.focus_handle.focus(window, cx);
+                  cx.notify();
+                });
+              })
+            };
+            menu
+              .item(item("New Tab to the Right", |this, index, _, cx| this.new_tab_after(index, cx)))
+              .separator()
+              .item(item("Rename", |this, index, window, cx| this.rename_tab(index, window, cx)))
+              .item(item("Reload", |this, index, _, cx| this.reload_tab(index, cx)))
+              .item(item("Duplicate", |this, index, _, cx| this.duplicate_tab(index, cx)))
+              .item(item(if pinned { "Unpin" } else { "Pin" }, |this, index, _, _| this.toggle_tab_pin(index)))
+              .separator()
+              .item(item("Close", |this, index, window, _| this.close_tab(index, window)))
+              .item(item("Close Other Tabs", |this, index, window, _| this.close_other_tabs(index, window)))
+          })
           .into_any_element()
       })
       .collect()

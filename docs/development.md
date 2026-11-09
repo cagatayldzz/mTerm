@@ -35,7 +35,7 @@ scripts/app.sh --check                   # TypeScript, cargo fmt, clippy, and te
 | `mterm` | app | the macOS application (binary `mTerm`) |
 | `mterm-ui` | library | views built with GPUI Kit |
 | `mterm-terminal` | library | PTY, emulation, key encoding |
-| `mterm-storage` | library | window size, command history and preferences |
+| `mterm-storage` | library | window size, command history, preferences and the window state |
 | `mterm-version` | library | version comparison for update checks |
 | `mterm-updater` | library | self-update from GitHub releases |
 
@@ -52,4 +52,4 @@ use temporary directories; `MTERM_DATA_DIR` overrides the location.
 
 ## Local data
 
-`~/Library/Application Support/mTerm/` holds `window-size.txt`, `history.txt`, `preferences.txt` and `layout.txt`.
+`~/Library/Application Support/mTerm/` holds `window-size.txt`, `history.txt`, `preferences.txt` and `state.json`.

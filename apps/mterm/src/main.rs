@@ -4,7 +4,7 @@
 
 use futures::StreamExt as _;
 use gpui_kit::{component::TitleBar, *};
-use mterm_storage::{directory_from_url, WindowSize};
+use mterm_storage::{directory_from_url, SavedState, SavedWindow, WindowSize};
 use mterm_ui::{
   Assets, CheckForUpdates, ClearHistory, ClearScreen, ClosePane, Copy, DecreaseFontSize, Find, FindNext, FindPrevious, Hide, HideOthers,
   IncreaseFontSize, Minimize, NewTab, NewWindow, NextPane, NextTab, OpenSettings, Paste, PreviousPane, PreviousTab, Quit, ResetFontSize, SelectAll,
@@ -18,6 +18,10 @@ struct OpenWindows {
   windows: Vec<(AnyWindowHandle, Entity<Workspace>)>,
   /// The titles and front state the menus were last built from.
   shown: Vec<(String, bool)>,
+  /// What was last written to disk, so only real changes are saved.
+  saved: SavedState,
+  /// Set once the app is quitting: windows closing then are not the user leaving them.
+  quitting: bool,
 }
 
 impl Global for OpenWindows {}
@@ -46,7 +50,7 @@ fn main() {
     cx.on_action(|_: &Hide, cx| cx.hide());
     cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
     cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
-    cx.on_action(|_: &NewWindow, cx| open_window(None, cx));
+    cx.on_action(|_: &NewWindow, cx| open_window(None, None, cx));
     cx.on_action(|action: &SelectWindow, cx| select_window(action.0, cx));
     // Closing the last window quits.
     cx.on_window_closed(|cx, _| {
@@ -54,9 +58,12 @@ fn main() {
         cx.quit();
       }
       refresh_window_menu(cx);
+      save_state(cx);
     })
     .detach();
     cx.on_app_quit(|cx| {
+      save_state(cx);
+      cx.global_mut::<OpenWindows>().quitting = true;
       if let Some(window) = cx.active_window() {
         let _ = window.update(cx, |_, window, _| save_window_size(window));
       }
@@ -71,16 +78,24 @@ fn main() {
     })
     .detach();
 
-    // A folder on the command line opens straight away; otherwise give the system a moment to
-    // hand one over before opening a plain window.
+    // Continue where the last run left off: the same windows, tabs and splits, each shell in the
+    // directory it was in.
+    let restored = SavedState::load(&SavedState::default_path());
+    cx.global_mut::<OpenWindows>().saved = restored.clone();
+    for window in restored.windows {
+      open_window(None, Some(window), cx);
+    }
+
+    // A folder on the command line opens a window of its own; otherwise give the system a moment
+    // to hand one over before opening a plain window.
     if let Some(folder) = std::env::args().nth(1).and_then(|argument| directory_from_url(&argument)) {
-      open_window(Some(folder), cx);
+      open_window(Some(folder), None, cx);
     } else {
       cx.spawn(async move |cx| {
         cx.background_executor().timer(OPEN_URLS_GRACE).await;
         cx.update(|cx| {
           if cx.windows().is_empty() {
-            open_window(None, cx);
+            open_window(None, None, cx);
           }
         });
       })
@@ -92,15 +107,15 @@ fn main() {
 fn open_folders(urls: &[String], cx: &mut App) {
   let folders: Vec<_> = urls.iter().filter_map(|url| directory_from_url(url)).collect();
   if folders.is_empty() {
-    open_window(None, cx);
+    open_window(None, None, cx);
   }
   for folder in folders {
-    open_window(Some(folder), cx);
+    open_window(Some(folder), None, cx);
   }
   cx.activate(true);
 }
 
-fn open_window(directory: Option<PathBuf>, cx: &mut App) {
+fn open_window(directory: Option<PathBuf>, restore: Option<SavedWindow>, cx: &mut App) {
   let saved_size = WindowSize::load(&WindowSize::default_path());
   let size = size(px(saved_size.width), px(saved_size.height));
   // A new window cascades from the active one; the first is centered.
@@ -133,13 +148,17 @@ fn open_window(directory: Option<PathBuf>, cx: &mut App) {
       })
       .detach();
       cx.observe_window_activation(window, |_, _, cx| cx.defer(refresh_window_menu)).detach();
-      Workspace::new(directory.clone(), window, cx)
+      Workspace::new(directory.clone(), restore.clone(), window, cx)
     })
   })
   .expect("Failed to open the mTerm window");
   cx.global_mut::<OpenWindows>().windows.push((handle, workspace.clone()));
   // The menu follows each window's title, and which window is in front.
-  cx.observe(&workspace, |_, cx| refresh_window_menu(cx)).detach();
+  cx.observe(&workspace, |_, cx| {
+    refresh_window_menu(cx);
+    save_state(cx);
+  })
+  .detach();
   refresh_window_menu(cx);
 }
 
@@ -162,6 +181,24 @@ fn refresh_window_menu(cx: &mut App) {
   }
   set_menus(cx, &entries);
   cx.global_mut::<OpenWindows>().shown = entries;
+}
+
+/// Writes what is open to disk when it differs from what was last written. Closing the last
+/// window keeps the previous state, so the next launch still continues from it.
+fn save_state(cx: &mut App) {
+  let open = cx.global::<OpenWindows>();
+  if open.quitting || open.windows.is_empty() {
+    return;
+  }
+  let windows: Vec<_> = open.windows.clone();
+  let state = SavedState { windows: windows.iter().map(|(_, workspace)| workspace.read(cx).saved_window()).collect() };
+  if cx.global::<OpenWindows>().saved == state {
+    return;
+  }
+  if let Err(error) = state.save(&SavedState::default_path()) {
+    eprintln!("Could not save the window state: {error}");
+  }
+  cx.global_mut::<OpenWindows>().saved = state;
 }
 
 fn select_window(index: usize, cx: &mut App) {

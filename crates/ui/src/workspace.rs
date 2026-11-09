@@ -19,7 +19,7 @@ use gpui_kit::{
   },
   *,
 };
-use mterm_storage::{History, SavedSession, ThemeChoice};
+use mterm_storage::{History, SavedTab, SavedWindow, ThemeChoice};
 use mterm_terminal::{encode_key, paste_bytes, Modifiers, Palette, Session, SessionEvent, SessionOptions};
 use std::{
   cell::{Cell, RefCell},
@@ -67,20 +67,21 @@ pub(crate) struct Pane {
 pub(crate) struct Tab {
   pub root: Node,
   pub focused: PaneId,
-  pub saved: SavedSession,
-  pub(crate) history: Rc<RefCell<History>>,
+  pub pinned: bool,
+  /// A name chosen by the user, shown instead of the focused pane's title.
+  pub title: Option<String>,
 }
 
 pub struct Workspace {
   pub(crate) panes: HashMap<PaneId, Pane>,
   pub(crate) tabs: Vec<Tab>,
   pub(crate) active: usize,
-  session_tabs: HashMap<String, PaneId>,
   next_pane: PaneId,
   directory: Option<PathBuf>,
   events: futures::channel::mpsc::UnboundedSender<(PaneId, SessionEvent)>,
   pub(crate) error: Option<String>,
-  pub(crate) saved_sessions: Vec<SavedSession>,
+  /// The commands entered in any tab of this window, shared by all of them.
+  pub(crate) history: Rc<RefCell<History>>,
   /// The Settings page shown in place of the terminal, when open.
   pub(crate) settings: Option<SettingsPage>,
   /// The find bar, when open.
@@ -93,8 +94,9 @@ pub struct Workspace {
 }
 
 impl Workspace {
-  /// `directory` is where shells start; `None` is the home folder.
-  pub fn new(directory: Option<PathBuf>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+  /// `directory` is where new shells start; `None` is the home folder. `restore` brings back the
+  /// tabs and panes of a window from the last run.
+  pub fn new(directory: Option<PathBuf>, restore: Option<SavedWindow>, window: &mut Window, cx: &mut Context<Self>) -> Self {
     let model = cx.global::<AppGlobal>().0.clone();
     let applied_theme = model.read(cx).theme();
     apply_theme(applied_theme, window, cx);
@@ -105,9 +107,6 @@ impl Workspace {
       cx.observe_window_activation(window, |this, window, cx| {
         if let Some(pane) = this.focused_pane() {
           pane.session.report_focus(window.is_window_active());
-        }
-        if window.is_window_active() {
-          this.sync_saved_sessions(cx);
         }
         cx.notify();
         cx.defer(|cx| {
@@ -123,7 +122,6 @@ impl Workspace {
           this.applied_theme = theme;
           apply_theme(theme, window, cx);
         }
-        this.sync_saved_sessions(cx);
         this.announce_update(window, cx);
         cx.notify();
       }),
@@ -151,11 +149,10 @@ impl Workspace {
       tabs: Vec::new(),
       active: 0,
       next_pane: 0,
-      session_tabs: HashMap::new(),
       directory,
       events,
       error: None,
-      saved_sessions: SavedSession::list(&SavedSession::directory_path()),
+      history: Rc::new(RefCell::new(History::load(&History::default_path()))),
       settings: None,
       find: None,
       settings_epoch: 0,
@@ -164,15 +161,14 @@ impl Workspace {
       focus_handle,
       _subscriptions: subscriptions,
     };
-    if workspace.directory.is_some() || workspace.saved_sessions.is_empty() || cx.windows().len() > 1 {
-      workspace.new_session(cx);
-    } else {
-      let last = SavedSession::last_selected(&SavedSession::directory_path());
-      let saved =
-        workspace.saved_sessions.iter().find(|saved| Some(&saved.id) == last.as_ref()).or_else(|| workspace.saved_sessions.first()).cloned();
-      if let Some(saved) = saved {
-        workspace.open_session(saved, cx);
+    if let Some(saved) = restore {
+      for tab in &saved.tabs {
+        workspace.restore_tab(tab, cx);
       }
+      workspace.active = saved.active.min(workspace.tabs.len().saturating_sub(1));
+    }
+    if workspace.tabs.is_empty() {
+      workspace.new_tab(cx);
     }
 
     workspace
@@ -247,21 +243,6 @@ impl Workspace {
           if let Some(pane) = self.panes.get_mut(&id) {
             pane.directory = Some(directory.clone());
           }
-          if let Some(tab) = self.tabs.iter().find(|tab| tab.root.leaves().contains(&id)) {
-            if tab.focused == id && tab.saved.directory != directory {
-              let mut updated = tab.saved.clone();
-              updated.directory = directory;
-              if let Err(error) = updated.save(&SavedSession::directory_path()) {
-                eprintln!("Could not save the session directory: {error}");
-              }
-              if let Some(saved) = self.saved_sessions.iter_mut().find(|saved| saved.id == updated.id) {
-                *saved = updated.clone();
-              }
-              for tab in self.tabs.iter_mut().filter(|tab| tab.saved.id == updated.id) {
-                tab.saved = updated.clone();
-              }
-            }
-          }
         }
         // Leaving the shell closes its pane, like iTerm2.
         SessionEvent::Exit => {
@@ -326,159 +307,67 @@ impl Workspace {
     }
   }
 
-  pub(crate) fn new_session(&mut self, cx: &App) {
-    let migrate_legacy = !SavedSession::directory_path().exists();
-    let directory = self.directory.clone().or_else(|| std::env::var_os("HOME").map(Into::into)).unwrap_or_default();
-    let saved = SavedSession::new(format!("Session {}", self.saved_sessions.len() + 1), directory);
-    if let Err(error) = saved.save(&SavedSession::directory_path()) {
-      self.error = Some(format!("Could not save the session: {error}"));
-      return;
-    }
-    if migrate_legacy {
-      let old_history = History::load(&History::default_path());
-      if !old_history.entries().is_empty() {
-        if let Err(error) = old_history.save(&saved.history_path(&SavedSession::directory_path())) {
-          eprintln!("Could not migrate command history: {error}");
-        }
-      }
-      if let Some(layout) = mterm_storage::SavedLayout::load() {
-        if let Err(error) = saved.save_layout(&SavedSession::directory_path(), &layout) {
-          eprintln!("Could not migrate pane layout: {error}");
-        }
-      }
-    }
-    self.saved_sessions.push(saved.clone());
-    SavedSession::sort(&mut self.saved_sessions);
-    self.open_session(saved, cx);
-  }
-
-  fn open_session(&mut self, saved: SavedSession, cx: &App) {
-    if let Some(tab) = self.tabs.get(self.active) {
-      self.session_tabs.insert(tab.saved.id.clone(), tab.focused);
-    }
-    let preferred = self.session_tabs.get(&saved.id);
-    if let Some(index) = self
-      .tabs
-      .iter()
-      .position(|tab| tab.saved.id == saved.id && Some(&tab.focused) == preferred)
-      .or_else(|| self.tabs.iter().position(|tab| tab.saved.id == saved.id))
-    {
-      self.active = index;
-      if let Err(error) = saved.remember_selected(&SavedSession::directory_path()) {
-        eprintln!("Could not save the selected session: {error}");
-      }
-      return;
-    }
-    let directory = saved.directory.is_dir().then(|| saved.directory.clone());
-    if let Some(id) = self.spawn_pane(directory.clone(), cx) {
-      let history = Rc::new(RefCell::new(saved.history(&SavedSession::directory_path())));
-      let mut root = Node::Leaf(id);
-      if let Some(layout) = saved.load_layout(&SavedSession::directory_path()).and_then(|text| Node::decode(&text)) {
-        let mut ids = vec![id];
-        while ids.len() < layout.leaves().len() {
-          let Some(id) = self.spawn_pane(directory.clone(), cx) else { break };
-          ids.push(id);
-        }
-        if ids.len() == layout.leaves().len() {
-          root = layout.map_leaves(&mut ids.into_iter());
-        } else {
-          for id in ids.into_iter().skip(1) {
-            self.panes.remove(&id);
-          }
-        }
-      }
-      if let Err(error) = saved.remember_selected(&SavedSession::directory_path()) {
-        eprintln!("Could not save the selected session: {error}");
-      }
-      self.tabs.push(Tab { root, focused: id, saved, history });
-      self.active = self.tabs.len() - 1;
-    }
-  }
-
+  /// Opens a tab in the directory of the focused pane.
   pub(crate) fn new_tab(&mut self, cx: &App) {
-    let Some(tab) = self.tabs.get(self.active) else { return };
-    let saved = tab.saved.clone();
-    let history = tab.history.clone();
-    let directory = saved.directory.is_dir().then(|| saved.directory.clone());
+    let directory = self.focused_pane().and_then(|pane| pane.directory.clone()).or_else(|| self.directory.clone());
     if let Some(id) = self.spawn_pane(directory, cx) {
-      self.tabs.push(Tab { root: Node::Leaf(id), focused: id, saved, history });
+      self.tabs.push(Tab { root: Node::Leaf(id), focused: id, pinned: false, title: None });
       self.active = self.tabs.len() - 1;
     }
   }
 
-  pub(crate) fn select_session(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
-    if let Some(saved) = self.saved_sessions.iter().find(|session| session.id == id).cloned() {
-      self.open_session(saved, cx);
-      self.settings = None;
-      self.focus_handle.focus(window, cx);
-      cx.notify();
+  /// Opens a saved tab: its split layout with a fresh shell in each pane's last directory.
+  /// A directory that no longer exists falls back to the home folder.
+  fn spawn_tab(&mut self, saved: &SavedTab, cx: &App) -> Option<Tab> {
+    let directory = |index: usize| saved.directories.get(index).filter(|directory| directory.is_dir()).cloned();
+    let layout = Node::decode(&saved.layout).filter(|layout| layout.leaves().len() == saved.directories.len()).unwrap_or(Node::Leaf(0));
+    let mut ids = Vec::new();
+    for index in 0..layout.leaves().len() {
+      let Some(id) = self.spawn_pane(directory(index), cx) else { break };
+      ids.push(id);
+    }
+    if ids.len() != layout.leaves().len() {
+      for id in ids {
+        self.panes.remove(&id);
+      }
+      return None;
+    }
+    let focused = ids[saved.focused.min(ids.len() - 1)];
+    Some(Tab { root: layout.map_leaves(&mut ids.into_iter()), focused, pinned: saved.pinned, title: saved.title.clone() })
+  }
+
+  fn restore_tab(&mut self, saved: &SavedTab, cx: &App) {
+    if let Some(tab) = self.spawn_tab(saved, cx) {
+      self.tabs.push(tab);
     }
   }
 
-  /// Reconciles saved sessions across windows without discarding other live terminals.
-  fn sync_saved_sessions(&mut self, cx: &App) {
-    let saved = match SavedSession::try_list(&SavedSession::directory_path()) {
-      Ok(saved) => saved,
-      Err(error) => {
-        eprintln!("Could not read saved sessions: {error}");
-        return;
-      }
-    };
-    let active_pane = self.tabs.get(self.active).map(|tab| tab.focused);
-    let active_id = self.tabs.get(self.active).map(|tab| tab.saved.id.clone());
-    let removed: Vec<_> =
-      self.tabs.iter().filter(|tab| !saved.iter().any(|item| item.id == tab.saved.id)).flat_map(|tab| tab.root.leaves()).collect();
-    for id in removed {
-      self.panes.remove(&id);
-    }
-    self.tabs.retain(|tab| saved.iter().any(|item| item.id == tab.saved.id));
-    for tab in &mut self.tabs {
-      if let Some(item) = saved.iter().find(|item| item.id == tab.saved.id) {
-        tab.saved = item.clone();
-      }
-    }
-    self.saved_sessions = saved;
-    let active_removed = active_id.as_ref().is_some_and(|id| !self.tabs.iter().any(|tab| &tab.saved.id == id));
-    self.active = active_id
-      .and_then(|id| {
-        self
-          .tabs
-          .iter()
-          .position(|tab| tab.saved.id == id && Some(tab.focused) == active_pane)
-          .or_else(|| self.tabs.iter().position(|tab| tab.saved.id == id))
-      })
-      .unwrap_or_else(|| self.active.min(self.tabs.len().saturating_sub(1)));
-    if active_removed {
-      if let Some(tab) = self.tabs.get(self.active) {
-        if let Err(error) = tab.saved.remember_selected(&SavedSession::directory_path()) {
-          eprintln!("Could not save the selected session: {error}");
-        }
-      }
-    }
-    if self.tabs.is_empty() {
-      if let Some(saved) = self.saved_sessions.first().cloned() {
-        self.open_session(saved, cx);
-      } else {
-        self.new_session(cx);
-      }
+  fn saved_tab(&self, tab: &Tab) -> SavedTab {
+    let leaves = tab.root.leaves();
+    SavedTab {
+      layout: tab.root.encode(),
+      directories: leaves.iter().map(|id| self.panes.get(id).and_then(|pane| pane.directory.clone()).unwrap_or_default()).collect(),
+      focused: leaves.iter().position(|id| *id == tab.focused).unwrap_or(0),
+      pinned: tab.pinned,
+      title: tab.title.clone(),
     }
   }
 
-  pub(crate) fn toggle_session_pin(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
-    let Some(mut saved) = self.saved_sessions.iter().find(|session| session.id == id).cloned() else { return };
-    saved.pinned = !saved.pinned;
-    if let Err(error) = saved.save(&SavedSession::directory_path()) {
-      window.push_notification(component::notification::Notification::error(format!("Could not update the session: {error}")), cx);
-      return;
+  /// Opens a new tab right after `index`.
+  pub(crate) fn new_tab_after(&mut self, index: usize, cx: &App) {
+    let Some(tab) = self.tabs.get(index) else { return };
+    let directory = self.panes.get(&tab.focused).and_then(|pane| pane.directory.clone());
+    if let Some(id) = self.spawn_pane(directory, cx) {
+      self.tabs.insert(index + 1, Tab { root: Node::Leaf(id), focused: id, pinned: false, title: None });
+      self.active = index + 1;
     }
-    self.sync_saved_sessions(cx);
-    self.model.update(cx, |_, cx| cx.notify());
-    cx.notify();
   }
 
-  pub(crate) fn rename_session(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
-    let Some(saved) = self.saved_sessions.iter().find(|saved| saved.id == id) else { return };
-    let name = saved.name.clone();
+  /// Asks for a new name for a tab; an empty name goes back to the shell's title.
+  pub(crate) fn rename_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    let Some(tab) = self.tabs.get(index) else { return };
+    let focused = tab.focused;
+    let name = self.tab_title(tab);
     let input = cx.new(|cx| InputState::new(window, cx).default_value(name));
     let workspace = cx.weak_entity();
     let initial_focus = Cell::new(true);
@@ -486,83 +375,84 @@ impl Workspace {
       if initial_focus.replace(false) {
         input.focus_handle(cx).focus(window, cx);
       }
-      let input_for_save = input.clone();
+      let input = input.clone();
       let workspace = workspace.clone();
-      let id = id.clone();
-      dialog.confirm().title("Rename session").child(Input::new(&input)).ok_text("Save").on_ok(move |_, window, cx| {
-        let name = input_for_save.read(cx).value().trim().to_owned();
-        if name.is_empty() {
-          window.push_notification(component::notification::Notification::error("Session name cannot be empty."), cx);
-          return false;
-        }
-        workspace
-          .update(cx, |this, cx| {
-            let sessions = match SavedSession::try_list(&SavedSession::directory_path()) {
-              Ok(sessions) => sessions,
-              Err(error) => {
-                window.push_notification(component::notification::Notification::error(format!("Could not read sessions: {error}")), cx);
-                return false;
-              }
-            };
-            let Some(mut saved) = sessions.into_iter().find(|saved| saved.id == id) else {
-              window.push_notification(component::notification::Notification::error("The session no longer exists."), cx);
-              return false;
-            };
-            saved.name = name;
-            if let Err(error) = saved.save(&SavedSession::directory_path()) {
-              window.push_notification(component::notification::Notification::error(format!("Could not rename the session: {error}")), cx);
-              return false;
-            }
-            this.sync_saved_sessions(cx);
-            this.model.update(cx, |_, cx| cx.notify());
-            cx.notify();
-            true
-          })
-          .unwrap_or(true)
+      dialog.confirm().title("Rename tab").child(Input::new(&input)).ok_text("Save").on_ok(move |_, _, cx| {
+        let name = input.read(cx).value().trim().to_owned();
+        let _ = workspace.update(cx, |this, cx| {
+          // The tab may have moved or closed while the dialog was open.
+          if let Some(tab) = this.tabs.iter_mut().find(|tab| tab.focused == focused) {
+            tab.title = (!name.is_empty()).then_some(name);
+          }
+          cx.notify();
+        });
+        true
       })
     });
   }
 
-  pub(crate) fn confirm_delete_session(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
-    let Some(saved) = self.saved_sessions.iter().find(|session| session.id == id) else { return };
-    let title = format!("Delete {}?", saved.name);
-    let detail = "This deletes the saved session, its command history and layout. Running terminals in this session will close. Files in its working directory are not deleted.";
-    let answer = window.prompt(PromptLevel::Warning, &title, Some(detail), &["Cancel", "Delete Session"], cx);
-    cx.spawn_in(window, async move |this, cx| {
-      if answer.await == Ok(1) {
-        let _ = this.update_in(cx, |this, window, cx| {
-          let Some(saved) = this.saved_sessions.iter().find(|session| session.id == id).cloned() else { return };
-          if let Err(error) = saved.delete(&SavedSession::directory_path()) {
-            window.push_notification(component::notification::Notification::error(format!("Could not delete the session: {error}")), cx);
-            return;
-          }
-          this.sync_saved_sessions(cx);
-          this.model.update(cx, |_, cx| cx.notify());
-          cx.notify();
-        });
-      }
-    })
-    .detach();
-  }
-
-  pub(crate) fn split(&mut self, split: Split, cx: &App) {
-    let Some(focused) = self.tabs.get(self.active).map(|tab| tab.focused) else { return };
-    let directory = self.tabs.get(self.active).map(|tab| tab.saved.directory.clone());
-    if let Some(id) = self.spawn_pane(directory, cx) {
-      let tab = &mut self.tabs[self.active];
-      if tab.root.split(focused, id, split) {
-        tab.focused = id;
-        self.save_layout();
-      } else {
+  /// Restarts the shells of a tab, keeping its layout and directories.
+  pub(crate) fn reload_tab(&mut self, index: usize, cx: &App) {
+    let Some(old) = self.tabs.get(index) else { return };
+    let saved = self.saved_tab(old);
+    if let Some(tab) = self.spawn_tab(&saved, cx) {
+      let old = std::mem::replace(&mut self.tabs[index], tab);
+      for id in old.root.leaves() {
         self.panes.remove(&id);
       }
     }
   }
 
-  pub(crate) fn save_layout(&self) {
-    if let Some(tab) = self.tabs.get(self.active) {
-      if let Err(error) = tab.saved.save_layout(&SavedSession::directory_path(), &tab.root.encode()) {
-        eprintln!("Could not save pane layout: {error}");
+  /// Opens a copy of a tab, with its layout and directories, right after it.
+  pub(crate) fn duplicate_tab(&mut self, index: usize, cx: &App) {
+    let Some(old) = self.tabs.get(index) else { return };
+    let mut saved = self.saved_tab(old);
+    saved.pinned = false;
+    saved.title = saved.title.map(|title| format!("{title} copy"));
+    if let Some(tab) = self.spawn_tab(&saved, cx) {
+      self.tabs.insert(index + 1, tab);
+      self.active = index + 1;
+    }
+  }
+
+  /// Pins or unpins a tab; pinned tabs stay at the front.
+  pub(crate) fn toggle_tab_pin(&mut self, index: usize) {
+    let Some(tab) = self.tabs.get_mut(index) else { return };
+    tab.pinned = !tab.pinned;
+    let active = self.tabs.get(self.active).map(|tab| tab.focused);
+    self.tabs.sort_by_key(|tab| !tab.pinned);
+    if let Some(active) = active {
+      self.active = self.tabs.iter().position(|tab| tab.root.leaves().contains(&active)).unwrap_or(0);
+    }
+  }
+
+  /// Closes every tab but this one, leaving pinned tabs open.
+  pub(crate) fn close_other_tabs(&mut self, index: usize, window: &mut Window) {
+    let Some(keep) = self.tabs.get(index).map(|tab| tab.focused) else { return };
+    let others: Vec<_> = self.tabs.iter().filter(|tab| !tab.pinned && tab.focused != keep).flat_map(|tab| tab.root.leaves()).collect();
+    for id in others {
+      self.close_pane(id, window);
+    }
+    if let Some(position) = self.tabs.iter().position(|tab| tab.focused == keep) {
+      self.active = position;
+    }
+  }
+
+  /// What is open in this window, for the next launch to continue from.
+  pub fn saved_window(&self) -> SavedWindow {
+    let tabs = self.tabs.iter().map(|tab| self.saved_tab(tab)).collect();
+    SavedWindow { tabs, active: self.active }
+  }
+
+  pub(crate) fn split(&mut self, split: Split, cx: &App) {
+    let Some(focused) = self.tabs.get(self.active).map(|tab| tab.focused) else { return };
+    let directory = self.focused_pane().and_then(|pane| pane.directory.clone());
+    if let Some(id) = self.spawn_pane(directory, cx) {
+      let tab = &mut self.tabs[self.active];
+      if tab.root.split(focused, id, split) {
+        tab.focused = id;
+      } else {
+        self.panes.remove(&id);
       }
     }
   }
@@ -576,21 +466,14 @@ impl Workspace {
       let tab = self.tabs.remove(index);
       if let Some(root) = tab.root.remove(id) {
         let focused = if tab.focused == id { root.leaves()[0] } else { tab.focused };
-        if let Err(error) = tab.saved.save_layout(&SavedSession::directory_path(), &root.encode()) {
-          eprintln!("Could not save pane layout: {error}");
-        }
-        self.tabs.insert(index, Tab { root, focused, saved: tab.saved, history: tab.history });
+        self.tabs.insert(index, Tab { root, focused, pinned: tab.pinned, title: tab.title });
       } else if self.active == index {
-        self.active =
-          self.tabs.iter().position(|other| other.saved.id == tab.saved.id).unwrap_or_else(|| index.min(self.tabs.len().saturating_sub(1)));
+        self.active = index.min(self.tabs.len().saturating_sub(1));
       } else if self.active > index {
         self.active -= 1;
       }
     }
     self.active = self.active.min(self.tabs.len().saturating_sub(1));
-    if !self.tabs.is_empty() {
-      self.save_layout();
-    }
     if self.tabs.is_empty() {
       window.remove_window();
     }
@@ -624,20 +507,16 @@ impl Workspace {
   }
 
   pub(crate) fn select_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-    if let Some(tab) = self.tabs.get(index) {
+    if index < self.tabs.len() {
       self.active = index;
-      if let Err(error) = tab.saved.remember_selected(&SavedSession::directory_path()) {
-        eprintln!("Could not save the selected session: {error}");
-      }
     }
     self.focus_handle.focus(window, cx);
     cx.notify();
   }
 
   fn step_tab(&mut self, step: isize, window: &mut Window, cx: &mut Context<Self>) {
-    let indices = self.active_tab_indices();
-    if let Some(current) = indices.iter().position(|index| *index == self.active) {
-      self.select_tab(indices[(current as isize + step).rem_euclid(indices.len() as isize) as usize], window, cx);
+    if !self.tabs.is_empty() {
+      self.select_tab((self.active as isize + step).rem_euclid(self.tabs.len() as isize) as usize, window, cx);
     }
   }
 
@@ -658,11 +537,6 @@ impl Workspace {
     }
   }
 
-  pub(crate) fn active_tab_indices(&self) -> Vec<usize> {
-    let Some(active) = self.tabs.get(self.active) else { return Vec::new() };
-    self.tabs.iter().enumerate().filter_map(|(index, tab)| (tab.saved.id == active.saved.id).then_some(index)).collect()
-  }
-
   pub(crate) fn focused_pane_id(&self) -> Option<PaneId> {
     self.tabs.get(self.active).map(|tab| tab.focused)
   }
@@ -671,8 +545,16 @@ impl Workspace {
     self.focused_pane_id().and_then(|id| self.panes.get(&id))
   }
 
-  /// The title of the focused pane, which names this window in the Window menu.
+  /// The title of a tab: the name the user gave it, or the focused pane's title.
+  pub(crate) fn tab_title(&self, tab: &Tab) -> String {
+    tab.title.clone().or_else(|| self.panes.get(&tab.focused).map(|pane| pane.title.clone())).unwrap_or_default()
+  }
+
+  /// The title of the selected tab, which names this window in the Window menu.
   pub fn title(&self) -> String {
+    if let Some(title) = self.tabs.get(self.active).and_then(|tab| tab.title.clone()) {
+      return title;
+    }
     self.focused_pane().map(|pane| pane.title.clone()).unwrap_or_else(|| "mTerm".into())
   }
 
@@ -709,8 +591,8 @@ impl Workspace {
     // ⌘1…⌘9 pick a tab; ⌘9 is the last one, like iTerm2.
     if held.platform && !held.control && !held.alt && !held.shift {
       if let Some(digit) = keystroke.key.parse::<usize>().ok().filter(|digit| (1..=9).contains(digit)) {
-        let indices = self.active_tab_indices();
-        if let Some(index) = if digit == 9 { indices.last() } else { indices.get(digit - 1) }.copied() {
+        let index = if digit == 9 { self.tabs.len().checked_sub(1) } else { Some(digit - 1).filter(|index| *index < self.tabs.len()) };
+        if let Some(index) = index {
           self.select_tab(index, window, cx);
         }
         cx.stop_propagation();
@@ -779,12 +661,10 @@ impl Workspace {
       "enter" => {
         let line = std::mem::take(&mut pane.line);
         if !pane.line_unreliable && !line.trim().is_empty() {
-          if let Some(tab) = self.tabs.get_mut(self.active) {
-            let mut history = tab.history.borrow_mut();
-            if history.push(&line) {
-              if let Err(error) = history.save(&tab.saved.history_path(&SavedSession::directory_path())) {
-                eprintln!("Could not save the session history: {error}");
-              }
+          let mut history = self.history.borrow_mut();
+          if history.push(&line) {
+            if let Err(error) = history.save(&History::default_path()) {
+              eprintln!("Could not save the command history: {error}");
             }
           }
         }
@@ -825,30 +705,22 @@ impl Workspace {
     cx.notify();
   }
 
-  /// Clears only the active session's recorded commands after confirmation.
+  /// Clears the recorded commands after confirmation.
   pub(crate) fn confirm_clear_history(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-    let Some(tab) = self.tabs.get(self.active) else { return };
-    if tab.history.borrow().entries().is_empty() {
+    if self.history.borrow().entries().is_empty() {
       return;
     }
-    let id = tab.saved.id.clone();
-    let answer = window.prompt(
-      PromptLevel::Warning,
-      "Clear session history?",
-      Some("This removes the recorded commands for this session."),
-      &["Cancel", "Clear History"],
-      cx,
-    );
+    let answer =
+      window.prompt(PromptLevel::Warning, "Clear command history?", Some("This removes the recorded commands."), &["Cancel", "Clear History"], cx);
     cx.spawn(async move |this, cx| {
       if answer.await == Ok(1) {
         let _ = this.update(cx, |this, cx| {
-          if let Some(tab) = this.tabs.iter_mut().find(|tab| tab.saved.id == id) {
-            let mut history = tab.history.borrow_mut();
-            history.clear();
-            if let Err(error) = history.save(&tab.saved.history_path(&SavedSession::directory_path())) {
-              eprintln!("Could not clear the session history: {error}");
-            }
+          let mut history = this.history.borrow_mut();
+          history.clear();
+          if let Err(error) = history.save(&History::default_path()) {
+            eprintln!("Could not clear the command history: {error}");
           }
+          drop(history);
           cx.notify();
         });
       }
