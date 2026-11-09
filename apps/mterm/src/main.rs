@@ -6,7 +6,7 @@ use futures::StreamExt as _;
 use gpui_kit::{component::TitleBar, *};
 use mterm_storage::{directory_from_url, SavedState, SavedWindow, WindowSize};
 use mterm_ui::{
-  Assets, CheckForUpdates, ClearHistory, ClearScreen, ClosePane, Copy, DecreaseFontSize, Find, FindNext, FindPrevious, Hide, HideOthers,
+  log_failure, Assets, CheckForUpdates, ClearHistory, ClearScreen, ClosePane, Copy, DecreaseFontSize, Find, FindNext, FindPrevious, Hide, HideOthers,
   IncreaseFontSize, Minimize, NewTab, NewWindow, NextPane, NextTab, OpenSettings, Paste, PreviousPane, PreviousTab, Quit, ResetFontSize, SelectAll,
   SelectWindow, ShowAll, SplitHorizontally, SplitVertically, Workspace, Zoom, CONTEXT, TOOLBAR_HEIGHT,
 };
@@ -195,9 +195,7 @@ fn save_state(cx: &mut App) {
   if cx.global::<OpenWindows>().saved == state {
     return;
   }
-  if let Err(error) = state.save(&SavedState::default_path()) {
-    eprintln!("Could not save the window state: {error}");
-  }
+  log_failure("save the window state", state.save(&SavedState::default_path()));
   cx.global_mut::<OpenWindows>().saved = state;
 }
 
@@ -211,9 +209,7 @@ fn select_window(index: usize, cx: &mut App) {
 fn save_window_size(window: &Window) {
   let size = window.window_bounds().get_bounds().size;
   let saved_size = WindowSize { width: size.width.into(), height: size.height.into() };
-  if let Err(error) = saved_size.save(&WindowSize::default_path()) {
-    eprintln!("Could not save window size: {error}");
-  }
+  log_failure("save the window size", saved_size.save(&WindowSize::default_path()));
 }
 
 fn bind_keys(cx: &mut App) {

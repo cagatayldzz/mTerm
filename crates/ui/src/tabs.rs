@@ -1,5 +1,5 @@
 use crate::{
-  history::icon_button,
+  components::{close_button, icon_button, truncated},
   workspace::{Workspace, TOOLBAR_HEIGHT},
   NewTab, OpenSettings,
 };
@@ -8,6 +8,7 @@ use gpui_kit::{
   component::{
     h_flex,
     menu::{ContextMenuExt as _, PopupMenuItem},
+    tab::{Tab, TabBar},
     ActiveTheme, Icon, IconName, Sizable, ThemeColor, TitleBar,
   },
   *,
@@ -23,23 +24,11 @@ impl Workspace {
     let background = rgb(Self::palette(cx).background.hex());
 
     let middle = if self.tabs.len() > 1 {
-      h_flex()
-        .flex_1()
-        .min_w_0()
-        .items_center()
-        .gap_1()
-        .children(self.render_tabs(cx))
-        .child(icon_button("new-tab", IconName::Plus, "New tab (⌘T)", |_, window, cx| window.dispatch_action(Box::new(NewTab), cx)))
-        .into_any_element()
+      self.render_tab_bar(cx).into_any_element()
     } else {
-      div()
-        .flex_1()
-        .min_w_0()
-        .overflow_hidden()
-        .whitespace_nowrap()
-        .text_ellipsis()
+      truncated()
         .text_center()
-        .text_size(px(13.))
+        .text_sm()
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(theme.foreground.opacity(0.6))
         .child(self.title())
@@ -66,54 +55,35 @@ impl Workspace {
     )
   }
 
-  fn render_tabs(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
-    let theme = cx.theme().clone();
-    self
+  /// The tabs of this window as a GPUI Kit tab bar, with the button that opens another.
+  fn render_tab_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    let tabs: Vec<Tab> = self
       .tabs
       .iter()
       .enumerate()
       .map(|(index, tab)| {
-        let active = index == self.active;
-        let title = self.tab_title(tab);
         let pinned = tab.pinned;
         let workspace = cx.weak_entity();
-        h_flex()
-          .id(("tab", index))
-          .flex_1()
-          .min_w_0()
-          .max_w(px(200.))
-          .h(px(28.))
-          .pl_3()
-          .pr_1()
+        // Everything sits inside the tab's own surface, so the selected tab's highlight holds the
+        // icon, the title and the button together.
+        let content = h_flex()
           .gap_1()
           .items_center()
-          .rounded_md()
-          .cursor_pointer()
-          .text_size(px(12.))
-          .when(active, |this| this.bg(theme.secondary).text_color(theme.foreground))
-          .when(!active, |this| this.text_color(theme.muted_foreground).hover(|style| style.bg(theme.secondary.opacity(0.5))))
-          .on_click(cx.listener(move |this, _, window, cx| this.select_tab(index, window, cx)))
           .when(pinned, |this| this.child(Icon::new(gpui_kit_assets::IconName::Pin).small()))
-          .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(title))
+          .child(div().w_40().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(self.tab_title(tab)))
           .when(!pinned, |this| {
-            this.child(
-              div()
-                .id(("tab-close", index))
-                .size(px(20.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded_sm()
-                .hover(|style| style.bg(theme.muted_foreground.opacity(0.2)))
-                .on_click(cx.listener(move |this, _, window, cx| {
-                  cx.stop_propagation();
-                  this.close_tab(index, window);
-                  cx.notify();
-                }))
-                .child(Icon::new(IconName::Close).small()),
-            )
-          })
-          .context_menu(move |menu, _, _| {
+            this.child(close_button(
+              ("tab-close", index),
+              cx.listener(move |this, _, window, cx| {
+                this.close_tab(index, window);
+                cx.notify();
+              }),
+            ))
+          });
+        let item = Tab::new();
+        // The menu opens from anywhere on the tab except its button, which sits above this layer.
+        item
+          .child(div().id(("tab-menu", index)).absolute().size_full().context_menu(move |menu, _, _| {
             let item = |label: &'static str, action: fn(&mut Workspace, usize, &mut Window, &mut Context<Workspace>)| {
               let workspace = workspace.clone();
               PopupMenuItem::new(label).on_click(move |_, window, cx| {
@@ -134,10 +104,27 @@ impl Workspace {
               .separator()
               .item(item("Close", |this, index, window, _| this.close_tab(index, window)))
               .item(item("Close Other Tabs", |this, index, window, _| this.close_other_tabs(index, window)))
-          })
-          .into_any_element()
+          }))
+          .child(content)
       })
-      .collect()
+      .collect();
+    let workspace = cx.weak_entity();
+    h_flex()
+      .flex_1()
+      .min_w_0()
+      .gap_1()
+      .items_center()
+      .child(
+        TabBar::new("tabs")
+          .segmented()
+          .min_w_0()
+          .selected_index(self.active)
+          .on_click(move |index, window, cx| {
+            let _ = workspace.update(cx, |this, cx| this.select_tab(*index, window, cx));
+          })
+          .children(tabs),
+      )
+      .child(icon_button("new-tab", IconName::Plus, "New tab (⌘T)", |_, window, cx| window.dispatch_action(Box::new(NewTab), cx)))
   }
 }
 

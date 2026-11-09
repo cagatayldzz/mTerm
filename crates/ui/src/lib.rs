@@ -1,8 +1,8 @@
 //! The mTerm interface: a history sidebar next to tabs of split terminal panes, built with GPUI Kit.
 
 mod assets;
+mod components;
 mod find;
-mod history;
 mod layout;
 mod model;
 mod selection;
@@ -15,6 +15,7 @@ mod workspace;
 use gpui_kit::*;
 
 pub use assets::Assets;
+pub use components::log_failure;
 pub use model::{AppGlobal, AppModel, AppUpdate, APP_UPDATES_ENABLED, APP_VERSION};
 pub use workspace::{Workspace, CONTEXT, TOOLBAR_HEIGHT};
 

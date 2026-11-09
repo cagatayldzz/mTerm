@@ -1,7 +1,7 @@
 use crate::{
+  components::{close_button, pane_menu, truncated},
   layout::{Node, PaneId, Split},
   workspace::{Pane, Workspace, TOOLBAR_HEIGHT},
-  ClearScreen, ClosePane, Copy, NewTab, NewWindow, Paste, SplitHorizontally, SplitVertically,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -9,7 +9,7 @@ use gpui_kit::{
     button::{Button, ButtonVariants},
     h_flex,
     menu::{ContextMenuExt as _, DropdownMenu as _},
-    ActiveTheme, Icon, IconName, Sizable, WindowExt as _,
+    ActiveTheme, Icon, Sizable, WindowExt as _,
   },
   *,
 };
@@ -280,6 +280,10 @@ impl Workspace {
     let thumb_top = if snapshot.history_size > 0 { travel * (1. - snapshot.scrolled as f32 / snapshot.history_size as f32) } else { px(0.) };
     let has_scrollbar = snapshot.history_size > 0 && travel > px(0.);
     let scrollbar_start = Rc::new(Cell::new(px(0.)));
+    let (link_color, hit_color, selection_color) = {
+      let theme = cx.theme();
+      (theme.link, theme.warning, theme.selection)
+    };
     let reporting = pane.session.modes().mouse_reporting();
     let highlights = self.find_highlights(id, cx);
     let hovered = if window.modifiers().platform {
@@ -530,19 +534,10 @@ impl Workspace {
               .top(header_height + PADDING + line_height * (line + 1) as f32 - px(2.))
               .w(metrics.cell_width * (end - start) as f32)
               .h(px(1.))
-              .bg(gpui_kit::rgb(0x3b9fff)),
+              .bg(link_color),
           )
           .child(
-            div()
-              .absolute()
-              .left(px(4.))
-              .bottom(px(4.))
-              .px_2()
-              .py_1()
-              .bg(cx.theme().popover)
-              .text_color(cx.theme().popover_foreground)
-              .text_size(px(11.))
-              .child(url),
+            div().absolute().left_1().bottom_1().px_2().py_1().bg(cx.theme().popover).text_color(cx.theme().popover_foreground).text_xs().child(url),
           )
       })
       .child(
@@ -571,7 +566,7 @@ impl Workspace {
           .top(header_height + PADDING + line_height * hit.line as f32)
           .w(metrics.cell_width * (hit.end - hit.start) as f32)
           .h(line_height)
-          .bg(if hit.current { gpui_kit::rgb(0xff9f0a).opacity(0.7) } else { gpui_kit::rgb(0xffd60a).opacity(0.4) })
+          .bg(hit_color.opacity(if hit.current { 0.7 } else { 0.4 }))
       }))
       .when_some(selection, |this, (anchor, end)| {
         let (start, end) = if anchor < end { (anchor, end) } else { (end, anchor) };
@@ -586,7 +581,7 @@ impl Workspace {
               .top(header_height + PADDING + line_height * line as f32)
               .w(metrics.cell_width * (to - from) as f32)
               .h(line_height)
-              .bg(gpui_kit::rgb(0x69a9ff).opacity(0.4))
+              .bg(selection_color.opacity(0.4))
           })
         }))
       })
@@ -636,21 +631,7 @@ impl Workspace {
         )
       })
       .when(split, |this| this.child(self.render_pane_header(id, title, focused, cx)))
-      .context_menu(move |menu, _, _| {
-        menu
-          .action_context(action_context.clone())
-          .menu("New Window", Box::new(NewWindow))
-          .menu("New Tab", Box::new(NewTab))
-          .separator()
-          .menu("Split Pane Vertically", Box::new(SplitVertically))
-          .menu("Split Pane Horizontally", Box::new(SplitHorizontally))
-          .separator()
-          .menu("Copy", Box::new(Copy))
-          .menu("Paste", Box::new(Paste))
-          .menu("Clear Buffer", Box::new(ClearScreen))
-          .separator()
-          .menu("Close", Box::new(ClosePane))
-      })
+      .context_menu(move |menu, _, _| pane_menu(menu, &action_context))
       .into_any_element()
   }
 
@@ -671,32 +652,20 @@ impl Workspace {
       .border_b_1()
       .border_color(theme.foreground.opacity(0.25))
       .text_color(if focused { theme.foreground } else { theme.muted_foreground })
-      .child(Button::new(("pane-close", id)).icon(IconName::Close).ghost().xsmall().on_click(cx.listener(move |this, _, window, cx| {
-        cx.stop_propagation();
-        this.close_pane(id, window);
-        cx.notify();
-      })))
-      .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().text_size(px(12.)).child(title))
+      .child(close_button(
+        ("pane-close", id),
+        cx.listener(move |this, _, window, cx| {
+          this.close_pane(id, window);
+          cx.notify();
+        }),
+      ))
+      .child(truncated().text_xs().child(title))
       .child(
         Button::new(("pane-menu", id))
           .icon(Icon::new(gpui_kit_assets::IconName::CircleEllipsis))
           .ghost()
           .xsmall()
-          .dropdown_menu(move |menu, _, _| {
-            menu
-              .action_context(action_context.clone())
-              .menu("New Window", Box::new(NewWindow))
-              .menu("New Tab", Box::new(NewTab))
-              .separator()
-              .menu("Split Pane Vertically", Box::new(SplitVertically))
-              .menu("Split Pane Horizontally", Box::new(SplitHorizontally))
-              .separator()
-              .menu("Copy", Box::new(Copy))
-              .menu("Paste", Box::new(Paste))
-              .menu("Clear Buffer", Box::new(ClearScreen))
-              .separator()
-              .menu("Close", Box::new(ClosePane))
-          })
+          .dropdown_menu(move |menu, _, _| pane_menu(menu, &action_context))
           .on_open_change(move |open, window, cx| {
             if *open {
               let _ = workspace.update(cx, |workspace, cx| workspace.focus_pane(id, window, cx));

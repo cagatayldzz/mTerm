@@ -34,6 +34,9 @@ impl SettingsPage {
   }
 }
 
+/// The width of the Settings menu, which the component takes in pixels.
+const SIDEBAR_WIDTH: Pixels = px(180.);
+
 /// The Settings panel. `epoch` changes whenever it is opened, so the
 /// component starts on `page` again instead of keeping its own selection.
 pub(crate) fn render_settings(model: &Entity<AppModel>, page: SettingsPage, epoch: u64, cx: &App) -> impl IntoElement {
@@ -151,7 +154,7 @@ pub(crate) fn render_settings(model: &Entity<AppModel>, page: SettingsPage, epoc
   // The menu and its entries show the arrow; controls with their own cursor (the search field) keep it.
   div().id("settings").size_full().cursor_default().bg(theme.background).child(
     Settings::new(SharedString::from(format!("settings-{epoch}")))
-      .sidebar_width(px(180.))
+      .sidebar_width(SIDEBAR_WIDTH)
       .default_selected_index(SelectIndex { page_ix: page.index(), group_ix: None })
       .pages(vec![general, updates, about]),
   )
@@ -227,11 +230,11 @@ fn update_panel(model: &Entity<AppModel>, cx: &App) -> AnyElement {
         this.child(
           div()
             .p_3()
-            .rounded(px(8.))
+            .rounded_lg()
             .bg(theme.foreground.opacity(0.04))
             .text_sm()
             .text_color(theme.muted_foreground)
-            .max_h(px(180.))
+            .max_h_48()
             .overflow_hidden()
             .child(release.plain_notes()),
         )

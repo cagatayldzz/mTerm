@@ -1,5 +1,5 @@
 use crate::{
-  history::icon_button,
+  components::icon_button,
   layout::PaneId,
   workspace::{Workspace, TOOLBAR_HEIGHT},
 };
@@ -123,8 +123,9 @@ impl Workspace {
     Some(
       h_flex()
         .absolute()
-        .top(TOOLBAR_HEIGHT + px(8.))
-        .right(px(20.))
+        .top(TOOLBAR_HEIGHT)
+        .mt_2()
+        .right_5()
         .gap_1()
         .p_1()
         .items_center()
@@ -133,8 +134,8 @@ impl Workspace {
         .border_color(theme.border)
         .bg(theme.popover)
         .shadow_md()
-        .child(div().w(px(200.)).child(Input::new(&find.input)))
-        .child(div().min_w(px(56.)).text_size(px(12.)).text_color(theme.muted_foreground).child(status))
+        .child(div().w_48().child(Input::new(&find.input)))
+        .child(div().w_16().text_xs().text_color(theme.muted_foreground).child(status))
         .child(Button::new("find-case").label("Aa").ghost().xsmall().selected(find.case_sensitive).tooltip("Match case").on_click(cx.listener(
           |this, _, window, cx| {
             if let Some(find) = &mut this.find {

@@ -17,7 +17,7 @@ apps/mterm ──► ui ──► terminal
 | `storage` | data directory, `WindowSize`, `SavedState`, `History`, `Preferences` | `serde_json` |
 | `version` | numeric version comparison | none |
 | `updater` | release lookup, download, verification, bundle swap | version |
-| `ui` | `AppModel` (shared preferences and update state), `Workspace` (top band, tabs and panes), the Settings panel, actions, assets | terminal, storage, updater, gpui-kit |
+| `ui` | `AppModel` (shared preferences and update state), `Workspace` (top band, tabs and panes; shared pieces such as the pane menu and close button live in `components.rs`), the Settings panel, actions, assets | terminal, storage, updater, gpui-kit |
 | `apps/mterm` | window, menus, key bindings, quit handling | ui, storage, gpui-kit |
 
 `terminal` and `storage` know nothing about the interface, so they are tested

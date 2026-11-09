@@ -116,9 +116,7 @@ impl AppModel {
   }
 
   fn save(&self, cx: &mut Context<Self>) {
-    if let Err(error) = self.preferences.save(&Preferences::default_path()) {
-      eprintln!("Could not save the preferences: {error}");
-    }
+    crate::components::log_failure("save the preferences", self.preferences.save(&Preferences::default_path()));
     cx.notify();
   }
 

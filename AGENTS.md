@@ -23,7 +23,14 @@ workspace (`unsafe_code = "deny"`).
 
 # Interface
 
-Build the interface with GPUI Kit (`gpui-kit`) and its default icons.
+Build the interface with GPUI Kit (`gpui-kit`) and its default icons. Use its components
+(`Button`, `TabBar`, `Dialog`, `Input`, `Settings`, menus) instead of hand-built
+elements, and its theme colors (`link`, `warning`, `selection`, `border`) instead of
+fixed color values. Size interface
+elements with its tokens (`text_xs`/`text_sm`, `rounded_md`, `size_5`, `gap_2`,
+`Sizable`'s `small()`, `Size::Large`) instead of inline pixel values. Pixels stay only
+for terminal geometry (cells, padding, scrollbar and divider hit areas), window sizes,
+and named constants for sizes a component only accepts in pixels.
 
 # Tests
 

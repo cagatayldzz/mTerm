@@ -1,4 +1,5 @@
 use crate::{
+  components::log_failure,
   layout::{Node, PaneId, Split},
   settings::{render_settings, SettingsPage},
   CheckForUpdates, ClearHistory, ClearScreen, ClosePane, Copy, DecreaseFontSize, Find, FindNext, FindPrevious, IncreaseFontSize, NewTab, NextPane,
@@ -34,6 +35,12 @@ use std::{
 
 /// Height of the top band: the traffic lights and the title or tabs.
 pub const TOOLBAR_HEIGHT: Pixels = px(44.);
+
+/// The width of the Settings window.
+const SETTINGS_SIZE: Pixels = px(600.);
+
+/// The height of the settings below the dialog's title row.
+const SETTINGS_BODY_HEIGHT: Pixels = px(540.);
 
 /// How dark the veil over an inactive window is (0 is clear, 1 is black).
 pub(crate) const INACTIVE_VEIL: f32 = 0.35;
@@ -87,6 +94,8 @@ pub struct Workspace {
   /// The find bar, when open.
   pub(crate) find: Option<crate::find::Find>,
   settings_epoch: u64,
+  /// Whether the Settings dialog has appeared, so its closing by Esc or its button is noticed.
+  settings_shown: bool,
   pub(crate) model: Entity<AppModel>,
   applied_theme: ThemeChoice,
   pub(crate) focus_handle: FocusHandle,
@@ -156,6 +165,7 @@ impl Workspace {
       settings: None,
       find: None,
       settings_epoch: 0,
+      settings_shown: false,
       model,
       applied_theme,
       focus_handle,
@@ -186,12 +196,26 @@ impl Workspace {
   pub(crate) fn open_settings(&mut self, page: SettingsPage, window: &mut Window, cx: &mut Context<Self>) {
     self.settings = Some(page);
     self.settings_epoch += 1;
-    self.focus_handle.focus(window, cx);
+    self.settings_shown = false;
+    window.close_all_dialogs(cx);
+    let (model, epoch) = (self.model.clone(), self.settings_epoch);
+    window.open_dialog(cx, move |dialog, _, cx| {
+      let border = cx.theme().border;
+      // No dialog padding: the title row and the settings run edge to edge, split by a hairline.
+      dialog
+        .p_0()
+        .title(div().px_4().py_3().font_weight(FontWeight::SEMIBOLD).child("Settings"))
+        .width(SETTINGS_SIZE)
+        .max_w(SETTINGS_SIZE)
+        .child(div().h(SETTINGS_BODY_HEIGHT).border_t_1().border_color(border).child(render_settings(&model, page, epoch, cx)))
+    });
     cx.notify();
   }
 
   pub(crate) fn close_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
     self.settings = None;
+    self.settings_shown = false;
+    window.close_all_dialogs(cx);
     self.focus_handle.focus(window, cx);
     cx.notify();
   }
@@ -663,9 +687,7 @@ impl Workspace {
         if !pane.line_unreliable && !line.trim().is_empty() {
           let mut history = self.history.borrow_mut();
           if history.push(&line) {
-            if let Err(error) = history.save(&History::default_path()) {
-              eprintln!("Could not save the command history: {error}");
-            }
+            log_failure("save the command history", history.save(&History::default_path()));
           }
         }
         pane.line_unreliable = false;
@@ -717,9 +739,7 @@ impl Workspace {
         let _ = this.update(cx, |this, cx| {
           let mut history = this.history.borrow_mut();
           history.clear();
-          if let Err(error) = history.save(&History::default_path()) {
-            eprintln!("Could not clear the command history: {error}");
-          }
+          log_failure("clear the command history", history.save(&History::default_path()));
           drop(history);
           cx.notify();
         });
@@ -815,6 +835,16 @@ impl Workspace {
 
 impl Render for Workspace {
   fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    // The dialog closes itself on Esc, so Settings follow whether it is still open.
+    if self.settings.is_some() {
+      if window.has_active_dialog(cx) {
+        self.settings_shown = true;
+      } else if self.settings_shown {
+        self.settings = None;
+        self.settings_shown = false;
+        self.focus_handle.focus(window, cx);
+      }
+    }
     let theme = cx.theme().clone();
     let content = self.render_tab_content(window, cx);
     let page = v_flex().flex_1().min_w_0().h_full().child(self.render_band(cx)).child(content);
@@ -883,38 +913,6 @@ impl Render for Workspace {
       .bg(theme.background)
       .text_color(theme.foreground)
       .child(page)
-      .when_some(self.settings, |this, settings_page| {
-        this.child(
-          div().absolute().inset_0().flex().items_center().justify_center().bg(black().opacity(0.45)).child(
-            v_flex()
-              .w(px(600.))
-              .max_w_full()
-              .h(px(600.))
-              .max_h_full()
-              .overflow_hidden()
-              .rounded_lg()
-              .border_1()
-              .border_color(theme.border)
-              .bg(theme.background)
-              .child(
-                h_flex()
-                  .h(px(50.))
-                  .px_4()
-                  .items_center()
-                  .border_b_1()
-                  .border_color(theme.border)
-                  .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).child("Settings"))
-                  .child(crate::history::icon_button(
-                    "close-settings",
-                    gpui_kit::component::IconName::Close,
-                    "Close Settings (Esc)",
-                    cx.listener(|this, _, window, cx| this.close_settings(window, cx)),
-                  )),
-              )
-              .child(div().flex_1().min_h_0().child(render_settings(&self.model, settings_page, self.settings_epoch, cx))),
-          ),
-        )
-      })
       .when_some(self.render_find_bar(cx), |this, bar| this.child(bar))
       // A soft black veil over every window that is not the one in use.
       .when(inactive, |this| this.child(div().absolute().top_0().left_0().size_full().bg(black().opacity(INACTIVE_VEIL))))
