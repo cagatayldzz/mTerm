@@ -284,6 +284,9 @@ impl Session {
     if term.columns() == columns && term.screen_lines() == lines {
       return false;
     }
+    if columns > term.columns() {
+      unwrap_padding(&mut term);
+    }
     term.resize(Size { columns, lines });
     drop(term);
     let _ = self.sender.send(Msg::Resize(window_size(columns, lines)));
@@ -493,5 +496,22 @@ fn shell_directory(id: u32) -> Option<PathBuf> {
   #[cfg(not(target_os = "macos"))]
   {
     std::fs::read_link(format!("/proc/{id}/cwd")).ok()
+  }
+}
+
+/// Cuts the soft wrap after rows that end in blank padding.
+///
+/// Shells pad a row with spaces to push a stray prompt marker aside (zsh does this after `^C`), which
+/// can spill a few blanks onto the next row. Joining those rows when the pane grows would leave the
+/// next prompt in the middle of the line, so they stay separate rows.
+fn unwrap_padding<T>(term: &mut Term<T>) {
+  let last = Column(term.columns() - 1);
+  let top = -(term.grid().history_size() as i32);
+  for line in top..term.screen_lines() as i32 {
+    let row = &mut term.grid_mut()[Line(line)];
+    let padded = row[last].flags.contains(Flags::WRAPLINE) && row[last].c == ' ' && row[Column(last.0.saturating_sub(1))].c == ' ';
+    if padded {
+      row[last].flags.remove(Flags::WRAPLINE);
+    }
   }
 }

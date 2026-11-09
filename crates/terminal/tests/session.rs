@@ -290,3 +290,15 @@ fn search_measures_wide_characters_in_cells() {
   let hits = session.find("界b", true);
   assert_eq!(hits.iter().map(|hit| (hit.start, hit.end)).collect::<Vec<_>>(), [(1, 4), (5, 8)]);
 }
+
+#[test]
+fn growing_keeps_a_prompt_that_followed_padded_row_on_its_own_line() {
+  // The shell pads the row after "^C%" with spaces; they overflow onto the next row, then the prompt is drawn there.
+  let (session, receiver) = run("printf '^C%%%40s\\r%39s\\rPROMPT' '' ''");
+  wait_for_exit(&receiver);
+  wait_for_screen(&session, |snapshot| snapshot.line_text(1).starts_with("PROMPT"));
+  assert!(session.resize(80, 5));
+  let snapshot = session.snapshot(&Palette::light());
+  assert!(!snapshot.line_text(0).contains("PROMPT"), "{:?}", snapshot.line_text(0));
+  assert!(snapshot.line_text(1).starts_with("PROMPT"), "{:?}", snapshot.line_text(1));
+}
