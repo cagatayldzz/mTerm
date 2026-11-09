@@ -189,6 +189,29 @@ fn reads_the_shell_working_directory_on_demand() {
   assert_eq!(directory.canonicalize().unwrap(), std::path::Path::new("/tmp").canonicalize().unwrap());
 }
 
+/// The default shell starts through `login` on macOS; its directory must still be found.
+#[cfg(unix)]
+#[test]
+fn reads_the_directory_of_the_default_login_shell() {
+  let (sender, _receiver) = mpsc::channel();
+  let options = SessionOptions { program: None, working_directory: None, palette: None };
+  let session = Session::spawn(options, 40, 5, move |event| {
+    let _ = sender.send(event);
+  })
+  .unwrap();
+  std::thread::sleep(Duration::from_millis(1500));
+  session.write(&b"cd /tmp\n"[..]);
+  let expected = std::path::Path::new("/tmp").canonicalize().unwrap();
+  let deadline = Instant::now() + Duration::from_secs(5);
+  while Instant::now() < deadline {
+    if session.current_directory().and_then(|directory| directory.canonicalize().ok()) == Some(expected.clone()) {
+      return;
+    }
+    std::thread::sleep(Duration::from_millis(100));
+  }
+  panic!("the shell directory was not found, got {:?}", session.current_directory());
+}
+
 #[test]
 fn programs_are_told_the_terminal_type_and_a_locale() {
   let (session, receiver) = run("printf '%s|%s' \"$TERM\" \"${LANG:-none}\"");

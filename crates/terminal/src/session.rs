@@ -486,6 +486,9 @@ fn window_size(columns: usize, lines: usize) -> WindowSize {
 fn shell_directory(id: u32) -> Option<PathBuf> {
   #[cfg(target_os = "macos")]
   {
+    // The pty child is `/usr/bin/login`, which runs the shell as its own child. `login` is
+    // privileged, so its directory cannot be read, and it never changes anyway.
+    let id = macos_shell_id(id);
     std::process::Command::new("/usr/sbin/lsof")
       .args(["-a", "-p", &id.to_string(), "-d", "cwd", "-Fn"])
       .output()
@@ -497,6 +500,19 @@ fn shell_directory(id: u32) -> Option<PathBuf> {
   {
     std::fs::read_link(format!("/proc/{id}/cwd")).ok()
   }
+}
+
+/// The shell's process id: the first child when `id` is `login`, otherwise `id` itself.
+#[cfg(target_os = "macos")]
+fn macos_shell_id(id: u32) -> u32 {
+  let run = |program: &str, args: &[&str]| {
+    std::process::Command::new(program).args(args).output().ok().and_then(|output| String::from_utf8(output.stdout).ok())
+  };
+  let is_login = run("/bin/ps", &["-o", "comm=", "-p", &id.to_string()]).is_some_and(|name| name.trim().ends_with("/login"));
+  if !is_login {
+    return id;
+  }
+  run("/usr/bin/pgrep", &["-P", &id.to_string()]).and_then(|text| text.lines().next().and_then(|line| line.trim().parse().ok())).unwrap_or(id)
 }
 
 /// Cuts the soft wrap after rows that end in blank padding.
