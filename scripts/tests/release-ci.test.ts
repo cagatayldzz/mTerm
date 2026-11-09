@@ -5,20 +5,20 @@ import { join } from "node:path";
 
 test("release preparation selects the tagged range and stamps every package consistently", () => {
   const root = mkdtempSync(join(tmpdir(), "mterm-release-"));
-  const run = (args, env = {}) => Bun.spawnSync(args, {
+  const run = (args: string[], env: Record<string, string> = {}) => Bun.spawnSync(args, {
     cwd: root,
     env: { ...process.env, ...env },
     stdout: "pipe",
     stderr: "pipe"
   });
-  const git = (...args) => {
+  const git = (...args: string[]) => {
     const result = run(["git", ...args]);
     if (result.exitCode !== 0) throw new Error(result.stderr.toString());
     return result.stdout.toString().trim();
   };
   try {
     for (const directory of ["scripts", "apps/mterm/macos"]) mkdirSync(join(root, directory), { recursive: true });
-    copyFileSync(new URL("release.ts", import.meta.url), join(root, "scripts", "release.ts"));
+    copyFileSync(new URL("../release.ts", import.meta.url), join(root, "scripts", "release.ts"));
     writeFileSync(join(root, "package.json"), '{"version":"0.2.0","type":"module"}\n');
     writeFileSync(join(root, "Cargo.toml"), '[workspace.package]\nversion = "0.2.0"\nedition = "2021"\n');
     writeFileSync(join(root, "Cargo.lock"), ["mterm", "mterm-terminal", "mterm-storage", "dependency", "mterm-ui"]

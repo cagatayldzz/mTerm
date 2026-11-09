@@ -9,7 +9,7 @@ test("notarization gates distribution and removes the temporary signing keychain
     for (const path of ["scripts", "bin", "dist/mTerm.app", "temp"]) {
       mkdirSync(join(root, path), { recursive: true });
     }
-    copyFileSync(new URL("notarize-app.sh", import.meta.url), join(root, "scripts/notarize-app.sh"));
+    copyFileSync(new URL("../notarize-app.sh", import.meta.url), join(root, "scripts/notarize-app.sh"));
     const mock = `#!/bin/bash
 set -eu
 command_name="\${0##*/}"

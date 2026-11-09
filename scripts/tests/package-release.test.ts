@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { artifactNames, finalize, releaseTargets } from "./release.ts";
+import { artifactNames, finalize, releaseTargets } from "../release.ts";
 
 test("every supported target is required before checksums can be published", () => {
   const root = mkdtempSync(join(tmpdir(), "mterm-assets-"));

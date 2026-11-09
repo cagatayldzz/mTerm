@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { generateNotes, maxCommits, nextVersion, releaseBump, renderNotes, validateItems } from "./release.ts";
+import { generateNotes, maxCommits, nextVersion, releaseBump, renderNotes, validateItems } from "../release.ts";
+
+/** Test doubles only need to be callable like `fetch`. */
+const asFetch = (fake: unknown) => fake as typeof fetch;
 
 const commits = [
   { sha: "a".repeat(40), subject: "feat: add native window (#12)" },
@@ -26,7 +29,7 @@ describe("release version selection", () => {
     expect(nextVersion("0.2.9", "minor")).toBe("0.3.0");
     expect(nextVersion("0.2.9", "major")).toBe("1.0.0");
     expect(() => nextVersion("0.2.9-beta", "patch")).toThrow();
-    expect(() => nextVersion("0.2.9", "invalid")).toThrow();
+    expect(() => nextVersion("0.2.9", "invalid" as never)).toThrow();
   });
 });
 
@@ -54,7 +57,7 @@ test("notes omit empty sections and include source links and a complete changelo
 
 test("one bounded API call sends titles and parses structured output", async () => {
   let calls = 0;
-  const fetcher = async (url, options) => {
+  const fetcher = asFetch(async (url: string, options: { body: string }) => {
     calls += 1;
     expect(url).toBe("https://api.openai.com/v1/responses");
     const body = JSON.parse(options.body);
@@ -68,13 +71,13 @@ test("one bounded API call sends titles and parses structured output", async () 
       output: [{ content: [{ type: "output_text", text: JSON.stringify({ items }) }] }],
       usage: { input_tokens: 120, output_tokens: 60 }
     });
-  };
+  });
   expect((await generateNotes(commits, "test-key", fetcher)).items).toEqual(items);
   expect(calls).toBe(1);
 });
 
 test("missing secrets, empty changes and oversized releases fail before billing", async () => {
-  const neverFetch = () => { throw new Error("Must not call the API"); };
+  const neverFetch = asFetch(() => { throw new Error("Must not call the API"); });
   await expect(generateNotes(commits, "", neverFetch)).rejects.toThrow("OPENAI_API_KEY");
   await expect(generateNotes([], "test-key", neverFetch)).rejects.toThrow("no changes");
   await expect(generateNotes(Array(maxCommits + 1).fill(commits[0]), "test-key", neverFetch))
@@ -82,8 +85,8 @@ test("missing secrets, empty changes and oversized releases fail before billing"
 });
 
 test("API failures and truncated output stop release generation", async () => {
-  await expect(generateNotes(commits, "test-key", async () => new Response("sensitive details", { status: 429 })))
+  await expect(generateNotes(commits, "test-key", asFetch(async () => new Response("sensitive details", { status: 429 }))))
     .rejects.toThrow("HTTP 429");
-  await expect(generateNotes(commits, "test-key", async () => Response.json({ status: "incomplete" })))
+  await expect(generateNotes(commits, "test-key", asFetch(async () => Response.json({ status: "incomplete" }))))
     .rejects.toThrow("did not complete");
 });

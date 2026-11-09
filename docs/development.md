@@ -17,7 +17,16 @@ Requirements: Command Line Tools (not Xcode), Rust 1.92+ (stable), Bun. After cl
 | `bun run update` | `cargo update` |
 | `bun run commit` | `git add -A && oco --yes` |
 
-All build commands call `scripts/app.sh` (`--dev`, `[debug|release] --build`, `--check`).
+## Scripts
+
+| Path | Language | Purpose |
+| --- | --- | --- |
+| `scripts/app.sh` | shell | build, bundle, sign, launch, check (`--dev`, `[debug|release] --build`, `--check`) |
+| `scripts/notarize-app.sh` | shell | sign and notarize the app bundle (macOS tools) |
+| `scripts/release.ts` | TypeScript | the only script with logic beyond shell: version bump, release notes, packaging, checksums (`prepare`, `notes`, `package`, `finalize`) |
+| `scripts/tests/*.test.ts` | TypeScript | `bun test scripts`; type-checked with `bun run typecheck` |
+
+Use shell for macOS tool orchestration and TypeScript for anything that parses data or calls APIs; keep all TypeScript in `release.ts`, not in new scripts.
 
 ## Packages
 
