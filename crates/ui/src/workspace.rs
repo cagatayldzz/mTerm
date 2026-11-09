@@ -57,7 +57,7 @@ pub(crate) struct Pane {
   default_title: SharedString,
   pub directory: Option<PathBuf>,
   pub content_bounds: Rc<std::cell::Cell<Option<Bounds<Pixels>>>>,
-  line: String,
+  pub(crate) line: String,
   line_unreliable: bool,
   /// Fractional lines left over from smooth scrolling.
   pub scroll_remainder: f32,
@@ -105,6 +105,8 @@ pub struct Workspace {
   pub(crate) focus_handle: FocusHandle,
   _subscriptions: Vec<Subscription>,
   _events_task: Task<()>,
+  pub(crate) drop_tasks: HashMap<u64, Task<()>>,
+  pub(crate) next_drop: u64,
 }
 
 impl Workspace {
@@ -177,6 +179,8 @@ impl Workspace {
       focus_handle,
       _subscriptions: subscriptions,
       _events_task: events_task,
+      drop_tasks: HashMap::new(),
+      next_drop: 0,
     };
     if let Some(saved) = restore {
       for tab in &saved.tabs {

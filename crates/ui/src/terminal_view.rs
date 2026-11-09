@@ -459,18 +459,38 @@ impl Workspace {
         if let Some(pane) = this.panes.get_mut(&id) {
           pane.selection_dragging = false;
         }
-        let paths = match mterm_storage::prepare_dropped_paths(paths.paths()) {
-          Ok(paths) => paths,
-          Err(error) => {
-            window.push_notification(component::notification::Notification::error(format!("Could not prepare dropped file: {error}")), cx);
-            return;
-          }
-        };
-        let text = mterm_terminal::dropped_paths(paths.iter().map(|path| path.as_path()));
-        if !text.is_empty() {
-          this.focus_pane(id, window, cx);
-          this.insert_text(&text, window, cx);
-        }
+        let paths = paths.paths().to_vec();
+        this.focus_pane(id, window, cx);
+        let task_id = this.next_drop;
+        this.next_drop += 1;
+        let preparation = cx.background_executor().spawn(async move { mterm_storage::prepare_dropped_paths(&paths) });
+        let task = cx.spawn_in(window, async move |this, cx| {
+          let result = preparation.await;
+          let _ = this.update_in(cx, |this, window, cx| {
+            let owner = cx.weak_entity();
+            cx.defer(move |cx| {
+              let _ = owner.update(cx, |this, _| {
+                this.drop_tasks.remove(&task_id);
+              });
+            });
+            match result {
+              Ok(paths) => {
+                let text = mterm_terminal::dropped_paths(paths.iter().map(|path| path.as_path()));
+                if !text.is_empty() {
+                  if let Some(pane) = this.panes.get_mut(&id) {
+                    pane.session.write(mterm_terminal::paste_bytes(&text, pane.session.modes().bracketed_paste));
+                    pane.line.push_str(&text);
+                    cx.notify();
+                  }
+                }
+              }
+              Err(error) => {
+                window.push_notification(component::notification::Notification::error(format!("Could not prepare dropped file: {error}")), cx);
+              }
+            }
+          });
+        });
+        this.drop_tasks.insert(task_id, task);
       }))
       .on_scroll(cx.listener(move |this, event: &ScrollEvent, _, cx| {
         let Some(pane) = this.panes.get_mut(&id) else { return };

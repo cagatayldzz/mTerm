@@ -79,6 +79,17 @@ impl Workspace {
         let tab_id = tab.id;
         let workspace_id = cx.entity_id();
         let workspace = cx.weak_entity();
+        // Programs such as Codex animate their activity in the terminal title using braille
+        // spinner characters. A tab can contain several panes, so inspect each pane's title.
+        let activity = tab
+          .root
+          .leaves()
+          .into_iter()
+          .find_map(|id| {
+            let title = &self.panes.get(&id)?.title;
+            title.chars().next().filter(|character| ('\u{2801}'..='\u{28ff}').contains(character))
+          })
+          .filter(|character| !self.tab_title(tab).starts_with(*character));
         // Everything sits inside the tab's own surface, so the selected tab's highlight holds the
         // icon, the title and the button together.
         let content = h_flex()
@@ -86,7 +97,15 @@ impl Workspace {
           .items_center()
           .text_sm()
           .when(pinned, |this| this.child(Icon::new(gpui_kit_assets::IconName::Pin).small()))
-          .child(div().w_40().mr_4().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(self.tab_title(tab)))
+          .child(
+            h_flex()
+              .w_40()
+              .mr_4()
+              .min_w_0()
+              .gap_1()
+              .when_some(activity, |this, character| this.child(character.to_string()))
+              .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(self.tab_title(tab))),
+          )
           .when(!pinned, |this| {
             this.child(
               close_button(
