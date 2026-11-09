@@ -79,6 +79,10 @@ impl Workspace {
         let tab_id = tab.id;
         let workspace_id = cx.entity_id();
         let workspace = cx.weak_entity();
+        // The kit's segmented tab has no hover fill of its own. Dark themes use the accent; it is too
+        // close to the bar in light themes, so those darken the bar with the text color instead.
+        let hover_background = if cx.theme().is_dark() { cx.theme().accent } else { cx.theme().foreground.opacity(0.12) };
+        let selected = index == self.active;
         // Programs such as Codex animate their activity in the terminal title using braille
         // spinner characters. A tab can contain several panes, so inspect each pane's title.
         let activity = tab
@@ -127,6 +131,7 @@ impl Workspace {
               .id(("tab-menu", tab_id))
               .absolute()
               .size_full()
+              .when(!selected, |this| this.rounded_md().hover(move |style| style.bg(hover_background)))
               .on_drag(TabDrag { workspace: workspace_id, tab: tab_id }, |drag, _, _, cx| cx.new(|_| drag.clone()))
               .on_drag_move(cx.listener(move |this, event: &DragMoveEvent<TabDrag>, _, cx| {
                 let drag = event.drag(cx);
