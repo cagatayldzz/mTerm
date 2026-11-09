@@ -6,6 +6,7 @@ default-members = ["apps/mterm"]
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.92"
 publish = false
 license = "UNLICENSED"
 repository = "https://github.com/cagatayldzz/mTerm"
@@ -17,8 +18,8 @@ mterm-ui = { path = "crates/ui" }
 mterm-version = { path = "crates/version" }
 mterm-updater = { path = "crates/updater" }
 alacritty_terminal = "0.26.0"
-gpui-kit = "0.8.0"
-gpui-kit-assets = "0.8.0"
+gpui-kit = { version = "0.9.0", features = ["gpui-fast"] }
+gpui-kit-assets = "0.9.0"
 futures = "0.3"
 serde_json = "1"
 
@@ -37,15 +38,37 @@ strip = true
 [profile.dev.package."*"]
 debug = false
 
-# Keep layout and frame rendering fast in the development app.
+# Keep layout, text and frame rendering fast in the development app (GPUI Kit's recommended list).
+# Proc-macro crates stay out: they run inside the compiler, so optimizing them only adds build time.
 [profile.dev.package.gpui-pre]
-opt-level = 2
+opt-level = 3
+
+[profile.dev.package.gpui-pre-platform]
+opt-level = 3
+
+[profile.dev.package.gpui-fast]
+opt-level = 3
+
+[profile.dev.package.gpui-fast-platform]
+opt-level = 3
 
 [profile.dev.package.gpui-component]
-opt-level = 2
+opt-level = 3
+
+[profile.dev.package.gpui-kit]
+opt-level = 3
+
+[profile.dev.package.gpui-kit-assets]
+opt-level = 3
+
+[profile.dev.package.rustybuzz]
+opt-level = 3
+
+[profile.dev.package.ttf-parser]
+opt-level = 3
 
 [profile.dev.package.taffy]
-opt-level = 2
+opt-level = 3
 
 [profile.dev.package.alacritty_terminal]
 opt-level = 2
