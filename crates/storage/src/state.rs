@@ -12,6 +12,8 @@ pub struct SavedTab {
   /// The position of the focused pane in pane order.
   pub focused: usize,
   pub pinned: bool,
+  /// Whether each pane is pinned, in pane order.
+  pub pinned_panes: Vec<bool>,
   /// A name given by the user; `None` follows the focused pane's title.
   pub title: Option<String>,
 }
@@ -65,7 +67,7 @@ impl SavedState {
         let tabs: Vec<_> = window
           .tabs
           .iter()
-          .map(|tab| serde_json::json!({ "layout": tab.layout, "directories": tab.directories, "focused": tab.focused, "pinned": tab.pinned, "title": tab.title }))
+          .map(|tab| serde_json::json!({ "layout": tab.layout, "directories": tab.directories, "focused": tab.focused, "pinned": tab.pinned, "pinned_panes": tab.pinned_panes, "title": tab.title }))
           .collect();
         serde_json::json!({
           "tabs": tabs,
@@ -98,7 +100,12 @@ impl SavedState {
     let directories = json.get("directories")?.as_array()?.iter().filter_map(|value| value.as_str().map(PathBuf::from)).collect();
     let focused = json.get("focused").and_then(|value| value.as_u64()).unwrap_or(0) as usize;
     let pinned = json.get("pinned").and_then(|value| value.as_bool()).unwrap_or(false);
+    let pinned_panes = json
+      .get("pinned_panes")
+      .and_then(|value| value.as_array())
+      .map(|values| values.iter().map(|value| value.as_bool().unwrap_or(false)).collect())
+      .unwrap_or_default();
     let title = json.get("title").and_then(|value| value.as_str()).map(str::to_owned);
-    Some(SavedTab { layout, directories, focused, pinned, title })
+    Some(SavedTab { layout, directories, focused, pinned, pinned_panes, title })
   }
 }

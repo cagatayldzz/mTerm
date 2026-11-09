@@ -51,6 +51,7 @@ pub const CONTEXT: &str = "Workspace";
 /// One shell and its screen.
 pub(crate) struct Pane {
   pub session: Rc<Session>,
+  pub pinned: bool,
   pub title: SharedString,
   /// The title shown until a program sets its own, and again once it resets it.
   default_title: SharedString,
@@ -313,6 +314,7 @@ impl Workspace {
           id,
           Pane {
             session: Rc::new(session),
+            pinned: false,
             default_title: title.clone().into(),
             title: title.into(),
             directory: pane_directory,
@@ -369,6 +371,11 @@ impl Workspace {
       }
       return None;
     }
+    for (index, id) in ids.iter().enumerate() {
+      if let Some(pane) = self.panes.get_mut(id) {
+        pane.pinned = saved.pinned_panes.get(index).copied().unwrap_or(false);
+      }
+    }
     let focused = ids[saved.focused.min(ids.len() - 1)];
     let mut tab = self.new_tab_value(layout.map_leaves(&mut ids.into_iter()), focused);
     tab.pinned = saved.pinned;
@@ -389,6 +396,7 @@ impl Workspace {
       directories: leaves.iter().map(|id| self.panes.get(id).and_then(|pane| pane.directory.clone()).unwrap_or_default()).collect(),
       focused: leaves.iter().position(|id| *id == tab.focused).unwrap_or(0),
       pinned: tab.pinned,
+      pinned_panes: leaves.iter().map(|id| self.panes.get(id).is_some_and(|pane| pane.pinned)).collect(),
       title: tab.title.as_ref().map(|title| title.to_string()),
     }
   }

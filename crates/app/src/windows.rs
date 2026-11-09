@@ -59,9 +59,14 @@ pub(crate) fn open_window(directory: Option<PathBuf>, restore: Option<SavedWindo
     ..TitleBar::window_options()
   };
   let (handle, workspace) = gpui_kit::open_window(options, cx, |window, cx| {
-    window.on_window_should_close(cx, |window, _| {
+    window.on_window_should_close(cx, |window, cx| {
       save_window_size(window);
-      true
+      if cx.global::<OpenWindows>().quitting {
+        true
+      } else {
+        window.minimize_window();
+        false
+      }
     });
     cx.new(|cx| {
       let mut last_size = None;

@@ -8,8 +8,8 @@ use gpui_kit::{
   component::{
     button::{Button, ButtonVariants},
     h_flex,
-    menu::{ContextMenuExt as _, DropdownMenu as _},
-    ActiveTheme, Icon, Sizable, WindowExt as _,
+    menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenuItem},
+    ActiveTheme, IconName, Sizable, WindowExt as _,
   },
   *,
 };
@@ -639,6 +639,8 @@ impl Workspace {
     let theme = cx.theme().clone();
     let action_context = self.focus_handle.clone();
     let workspace = cx.weak_entity();
+    let menu_workspace = workspace.clone();
+    let pinned = self.panes.get(&id).is_some_and(|pane| pane.pinned);
     h_flex()
       .absolute()
       .top_0()
@@ -652,20 +654,33 @@ impl Workspace {
       .border_b_1()
       .border_color(theme.foreground.opacity(0.25))
       .text_color(if focused { theme.foreground } else { theme.muted_foreground })
-      .child(close_button(
-        ("pane-close", id),
-        cx.listener(move |this, _, window, cx| {
-          this.close_pane(id, window);
-          cx.notify();
-        }),
-      ))
+      .when(!pinned, |this| {
+        this.child(close_button(
+          ("pane-close", id),
+          cx.listener(move |this, _, window, cx| {
+            this.close_pane(id, window);
+            cx.notify();
+          }),
+        ))
+      })
+      .when(pinned, |this| this.child(gpui_kit::component::Icon::new(gpui_kit_assets::IconName::Pin).xsmall()))
       .child(truncated().text_xs().child(title))
       .child(
         Button::new(("pane-menu", id))
-          .icon(Icon::new(gpui_kit_assets::IconName::CircleEllipsis))
+          .icon(IconName::Ellipsis)
           .ghost()
           .xsmall()
-          .dropdown_menu(move |menu, _, _| pane_menu(menu, &action_context))
+          .dropdown_menu(move |menu, _, _| {
+            let workspace = menu_workspace.clone();
+            pane_menu(menu, &action_context).separator().item(PopupMenuItem::new(if pinned { "Unpin" } else { "Pin" }).on_click(move |_, _, cx| {
+              let _ = workspace.update(cx, |this, cx| {
+                if let Some(pane) = this.panes.get_mut(&id) {
+                  pane.pinned = !pane.pinned;
+                  cx.notify();
+                }
+              });
+            }))
+          })
           .on_open_change(move |open, window, cx| {
             if *open {
               let _ = workspace.update(cx, |workspace, cx| workspace.focus_pane(id, window, cx));
