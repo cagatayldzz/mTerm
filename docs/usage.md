@@ -1,9 +1,12 @@
 # Usage
 
-mTerm opens a terminal with tabs and split panes. Right-click a pane for window,
-tab, and split actions. Right-click a tab to open a new tab to its right, rename it, reload it,
-duplicate it, pin it (pinned tabs stay at the front), close it, or close the other tabs. The history sidebar lists commands you have run; click an
-entry to type it at the prompt.
+mTerm opens a terminal with tabs and split panes and restores your windows, tabs, splits
+and folders on the next launch (shells start fresh; running programs and output are not
+restored).
+
+- Right-click a pane: window, tab and split actions.
+- Right-click a tab: new tab to the right, rename, reload, duplicate, pin (pinned tabs stay
+  at the front), close, close other tabs.
 
 ## Shortcuts
 

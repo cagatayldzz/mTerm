@@ -1,4 +1,4 @@
-//! The mTerm interface: a history sidebar next to tabs of split terminal panes, built with GPUI Kit.
+//! The mTerm interface: windows of tabs and split terminal panes, built with GPUI Kit.
 
 mod assets;
 mod components;

@@ -38,4 +38,4 @@ Required repository secrets:
 | `APPLE_TEAM_ID` | Team identifier |
 | `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for notarization |
 
-See [platform support](platform-support.md) for the supported systems.
+Supported systems: [development](development.md).

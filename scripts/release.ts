@@ -134,7 +134,7 @@ export function renderNotes({ items, commits, repository, tag, previousTag }: No
   return lines.join("\n");
 }
 
-// mTerm ships for Apple Silicon only (see docs/platform-support.md).
+// mTerm ships for Apple Silicon only (see docs/development.md).
 export const releaseTargets = [
   { runner: "macos-26", os: "macos", arch: "arm64", suffixes: ["macos-arm64.zip"] }
 ];

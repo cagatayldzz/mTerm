@@ -9,9 +9,9 @@ A minimal native terminal for macOS, built with Rust and [GPUI](https://gpui.rs)
   <img src="docs/images/settings.png" alt="mTerm settings dialog" width="49%">
 </p>
 
-mTerm brings tabs, split panes, and searchable settings together in a focused workspace.
-Search the scrollback with ⌘F, and choose a light or dark appearance to suit your
-workflow.
+mTerm brings tabs and split panes together in a focused workspace and picks up where
+you left off: windows, tabs, splits and folders return on the next launch. Search the
+scrollback with ⌘F and choose a theme and font in Settings.
 
 ## Get started
 
@@ -24,9 +24,8 @@ Open **Settings** with `⌘,` to change the appearance or check for updates. See
 
 ## Documentation
 
-- [Usage](docs/usage.md) — shortcuts, integrations, and updates
-- [Development](docs/development.md) — requirements, build commands, and tests
-- [Architecture](docs/architecture.md) — workspace packages and data flow
-- [Platform support](docs/platform-support.md) — supported systems and local data
+- [Usage](docs/usage.md) — shortcuts, mouse, integrations, updates
+- [Development](docs/development.md) — platform, commands, packages, tests
+- [Architecture](docs/architecture.md) — code map, data flow, persistence
 - [Releasing](docs/releasing.md) — release process
-- [Project conventions](AGENTS.md)
+- [Project rules](AGENTS.md) — conventions for contributors and AI agents
