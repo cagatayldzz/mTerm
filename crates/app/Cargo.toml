@@ -1,0 +1,24 @@
+[package]
+name = "mterm-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "mTerm application: startup, windows, menus, key bindings and saved state"
+autotests = false
+
+[package.metadata.layers]
+dependencies = ["mterm-ui", "mterm-storage", "futures", "gpui-kit"]
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+mterm-ui.workspace = true
+mterm-storage.workspace = true
+futures.workspace = true
+gpui-kit.workspace = true

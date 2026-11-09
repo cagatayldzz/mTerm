@@ -3,10 +3,10 @@
 Cargo workspace, one-way dependencies:
 
 ```text
-apps/mterm ─► ui ─► terminal
-    │          ├──► storage
-    │          └──► updater ─► version
-    └───────────► storage
+apps/mterm ─► app ─► ui ─► terminal
+                │      ├──► storage
+                │      └──► updater ─► version
+                └─────────► storage
 ```
 
 `terminal` and `storage` never depend on the interface and are tested without a window.
@@ -15,7 +15,11 @@ apps/mterm ─► ui ─► terminal
 
 | Path | Owns |
 | --- | --- |
-| `apps/mterm/src/main.rs` | windows, menus, key bindings, quit, window registry (`OpenWindows`), state saving and restore |
+| `apps/mterm/src/main.rs` | executable entry point only; calls `mterm_app::run` |
+| `crates/app/src/lib.rs` | startup: actions, quit, opening folders from the system, restoring saved windows |
+| `crates/app/src/windows.rs` | window registry (`OpenWindows`), opening and placing windows, Window menu, window size |
+| `crates/app/src/persistence.rs` | `save_state`: writes `SavedState` when the open windows change |
+| `crates/app/src/{keys,menus}.rs` | key bindings; menu bar and Dock menu |
 | `crates/ui/src/workspace.rs` | `Workspace` (one per window): tabs, panes, input, history, Settings dialog |
 | `crates/ui/src/tabs.rs` | top band, `TabBar`, tab context menu |
 | `crates/ui/src/terminal_view.rs` | pane rendering, mouse, selection, scrollbar, split dividers |
@@ -58,9 +62,9 @@ Data directory `~/Library/Application Support/mTerm` (override with `MTERM_DATA_
 Restore flow:
 
 - `state.json` holds, per window: tabs (layout string from `Node::encode`, one directory per pane, focused pane index, pinned, title), the selected tab, and window bounds.
-- `main.rs` observes every `Workspace`, builds `SavedState` from `Workspace::saved_window()` (bounds are filled in by `main.rs`, because only the window knows them), and writes only when it differs from `OpenWindows.saved`. Bounds changes trigger a deferred save.
+- `mterm-app` observes every `Workspace`, builds `SavedState` from `Workspace::saved_window()` (bounds are filled in by `persistence.rs`, because only the window knows them), and writes only when it differs from `OpenWindows.saved`. Bounds changes trigger a deferred save.
 - Closing the last window or quitting keeps the previous state (`OpenWindows.quitting`, empty-window guard).
-- On launch each saved window reopens with fresh shells in the saved directories; processes and output are not restored. A missing directory falls back to home. Bounds beyond the total display area are ignored and the window is placed like a new one (display origins are unreliable, see `on_a_screen`).
+- On launch each saved window reopens with fresh shells in the saved directories; processes and output are not restored. A missing directory falls back to home. Bounds beyond the total display area are ignored and the window is placed like a new one (display origins are unreliable, see `on_a_screen` in `windows.rs`).
 
 ## Settings and updates
 

@@ -4080,6 +4080,13 @@ dependencies = [
 name = "mterm"
 version = "0.1.0"
 dependencies = [
+ "mterm-app",
+]
+
+[[package]]
+name = "mterm-app"
+version = "0.1.0"
+dependencies = [
  "futures",
  "gpui-kit",
  "mterm-storage",

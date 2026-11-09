@@ -8,7 +8,7 @@ English for all project-owned identifiers, comments, UI text, logs, tests, docs 
 
 # Layout
 
-Workspace: `apps/*` (executables), `crates/*` (libraries). Dependencies: `apps/mterm` → `ui` → `terminal`, `storage`, `updater` (→ `version`). `terminal` and `storage` never depend on the interface. No `unsafe` (`unsafe_code = "deny"`). Update `docs/architecture.md` when architecture changes.
+Workspace: `apps/*` (executables), `crates/*` (libraries). Dependencies: `apps/mterm` → `app` → `ui` → `terminal`, `storage`, `updater` (→ `version`); `app` also uses `storage`. Keep `apps/mterm` a thin entry point; put application logic in `crates/*`. `terminal` and `storage` never depend on the interface. No `unsafe` (`unsafe_code = "deny"`). Update `docs/architecture.md` when architecture changes.
 
 # Interface
 

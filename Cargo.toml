@@ -14,6 +14,7 @@ repository = "https://github.com/cagatayldzz/mTerm"
 [workspace.dependencies]
 mterm-terminal = { path = "crates/terminal" }
 mterm-storage = { path = "crates/storage" }
+mterm-app = { path = "crates/app" }
 mterm-ui = { path = "crates/ui" }
 mterm-version = { path = "crates/version" }
 mterm-updater = { path = "crates/updater" }

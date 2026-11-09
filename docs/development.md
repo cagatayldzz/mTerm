@@ -32,7 +32,8 @@ Use shell for macOS tool orchestration and TypeScript for anything that parses d
 
 | Package | Kind | Purpose |
 | --- | --- | --- |
-| `mterm` | app | macOS application (binary `mTerm`) |
+| `mterm` | app | executable entry point (binary `mTerm`) |
+| `mterm-app` | lib | startup, windows, menus, key bindings, saved state |
 | `mterm-ui` | lib | views built with GPUI Kit |
 | `mterm-terminal` | lib | PTY, emulation, key and mouse encoding |
 | `mterm-storage` | lib | window size, history, preferences, window state |
