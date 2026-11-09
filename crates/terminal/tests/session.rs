@@ -180,6 +180,15 @@ fn reports_the_shell_working_directory() {
   }
 }
 
+#[cfg(unix)]
+#[test]
+fn reads_the_shell_working_directory_on_demand() {
+  let (session, _receiver) = run("cd /tmp; printf ready; sleep 3");
+  wait_for_screen(&session, |snapshot| snapshot.text().contains("ready"));
+  let directory = session.current_directory().expect("the shell directory");
+  assert_eq!(directory.canonicalize().unwrap(), std::path::Path::new("/tmp").canonicalize().unwrap());
+}
+
 #[test]
 fn programs_are_told_the_terminal_type_and_a_locale() {
   let (session, receiver) = run("printf '%s|%s' \"$TERM\" \"${LANG:-none}\"");

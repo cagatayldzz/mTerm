@@ -492,6 +492,15 @@ impl Workspace {
     }
   }
 
+  /// Reads every shell's current directory, so the state saved at quit is exact.
+  pub fn capture_directories(&mut self) {
+    for pane in self.panes.values_mut() {
+      if let Some(directory) = pane.session.current_directory() {
+        pane.directory = Some(directory);
+      }
+    }
+  }
+
   /// What is open in this window, for the next launch to continue from.
   pub fn saved_window(&self) -> SavedWindow {
     let tabs = self.tabs.iter().map(|tab| self.saved_tab(tab)).collect();

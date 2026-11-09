@@ -51,6 +51,11 @@ pub fn run() {
     })
     .detach();
     cx.on_app_quit(|cx| {
+      // The directory is tracked after each Enter; read it fresh so the last `cd` is not lost.
+      let workspaces: Vec<_> = cx.global::<OpenWindows>().windows.iter().map(|(_, workspace)| workspace.clone()).collect();
+      for workspace in workspaces {
+        workspace.update(cx, |workspace, _| workspace.capture_directories());
+      }
       save_state(cx);
       cx.global_mut::<OpenWindows>().quitting = true;
       if let Some(window) = cx.active_window() {

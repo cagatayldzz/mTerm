@@ -224,6 +224,19 @@ impl Session {
     self.term.lock().grid_mut().clear_history();
   }
 
+  /// Reads the shell's working directory right now. Blocks briefly, so it is meant for moments
+  /// like quitting, not for every frame.
+  pub fn current_directory(&self) -> Option<PathBuf> {
+    #[cfg(unix)]
+    {
+      shell_directory(self.child_id).filter(|path| path.is_dir())
+    }
+    #[cfg(not(unix))]
+    {
+      None
+    }
+  }
+
   /// Refreshes the shell's working directory without blocking the interface.
   pub fn refresh_directory(&self) {
     #[cfg(unix)]
@@ -247,15 +260,7 @@ impl Session {
           }
           state.pending = false;
         }
-        #[cfg(target_os = "macos")]
-        let directory = std::process::Command::new("/usr/sbin/lsof")
-          .args(["-a", "-p", &id.to_string(), "-d", "cwd", "-Fn"])
-          .output()
-          .ok()
-          .and_then(|output| String::from_utf8(output.stdout).ok())
-          .and_then(|text| text.lines().find_map(|line| line.strip_prefix('n').map(PathBuf::from)));
-        #[cfg(not(target_os = "macos"))]
-        let directory = std::fs::read_link(format!("/proc/{id}/cwd")).ok();
+        let directory = shell_directory(id);
         let mut state = refresh.lock().unwrap_or_else(|error| error.into_inner());
         if state.closed {
           return;
@@ -472,4 +477,21 @@ fn row_cells(term: &Term<Proxy>, line: i32) -> Vec<RowCell> {
 
 fn window_size(columns: usize, lines: usize) -> WindowSize {
   WindowSize { num_lines: lines as u16, num_cols: columns as u16, cell_width: 1, cell_height: 1 }
+}
+
+#[cfg(unix)]
+fn shell_directory(id: u32) -> Option<PathBuf> {
+  #[cfg(target_os = "macos")]
+  {
+    std::process::Command::new("/usr/sbin/lsof")
+      .args(["-a", "-p", &id.to_string(), "-d", "cwd", "-Fn"])
+      .output()
+      .ok()
+      .and_then(|output| String::from_utf8(output.stdout).ok())
+      .and_then(|text| text.lines().find_map(|line| line.strip_prefix('n').map(PathBuf::from)))
+  }
+  #[cfg(not(target_os = "macos"))]
+  {
+    std::fs::read_link(format!("/proc/{id}/cwd")).ok()
+  }
 }
