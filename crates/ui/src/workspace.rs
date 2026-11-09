@@ -51,9 +51,9 @@ pub const CONTEXT: &str = "Workspace";
 /// One shell and its screen.
 pub(crate) struct Pane {
   pub session: Rc<Session>,
-  pub title: String,
+  pub title: SharedString,
   /// The title shown until a program sets its own, and again once it resets it.
-  default_title: String,
+  default_title: SharedString,
   pub directory: Option<PathBuf>,
   pub content_bounds: Rc<std::cell::Cell<Option<Bounds<Pixels>>>>,
   line: String,
@@ -76,7 +76,9 @@ pub(crate) struct Tab {
   pub focused: PaneId,
   pub pinned: bool,
   /// A name chosen by the user, shown instead of the focused pane's title.
-  pub title: Option<String>,
+  pub title: Option<SharedString>,
+  /// Identifies the tab for as long as it lives, whatever its position.
+  pub id: u64,
 }
 
 pub struct Workspace {
@@ -84,6 +86,7 @@ pub struct Workspace {
   pub(crate) tabs: Vec<Tab>,
   pub(crate) active: usize,
   next_pane: PaneId,
+  next_tab: u64,
   directory: Option<PathBuf>,
   events: futures::channel::mpsc::UnboundedSender<(PaneId, SessionEvent)>,
   pub(crate) error: Option<String>,
@@ -100,6 +103,7 @@ pub struct Workspace {
   applied_theme: ThemeChoice,
   pub(crate) focus_handle: FocusHandle,
   _subscriptions: Vec<Subscription>,
+  _events_task: Task<()>,
 }
 
 impl Workspace {
@@ -137,7 +141,8 @@ impl Workspace {
     ];
 
     let (events, mut receiver) = futures::channel::mpsc::unbounded();
-    cx.spawn_in(window, async move |this, cx| {
+    // Kept on the workspace: closing the window drops the task and stops listening.
+    let events_task = cx.spawn_in(window, async move |this, cx| {
       while let Some(first) = receiver.next().await {
         // Output arrives in bursts: handle everything queued in one update.
         let mut batch = vec![first];
@@ -148,8 +153,7 @@ impl Workspace {
           break;
         }
       }
-    })
-    .detach();
+    });
 
     let focus_handle = cx.focus_handle();
     focus_handle.focus(window, cx);
@@ -158,6 +162,7 @@ impl Workspace {
       tabs: Vec::new(),
       active: 0,
       next_pane: 0,
+      next_tab: 0,
       directory,
       events,
       error: None,
@@ -170,6 +175,7 @@ impl Workspace {
       applied_theme,
       focus_handle,
       _subscriptions: subscriptions,
+      _events_task: events_task,
     };
     if let Some(saved) = restore {
       for tab in &saved.tabs {
@@ -257,7 +263,7 @@ impl Workspace {
         SessionEvent::Title(title) => {
           if let Some(pane) = self.panes.get_mut(&id) {
             // An empty title is a reset: go back to the shell's name once a program like vim exits.
-            pane.title = if title.is_empty() { pane.default_title.clone() } else { title };
+            pane.title = if title.is_empty() { pane.default_title.clone() } else { title.into() };
             redraw = true;
           }
         }
@@ -307,8 +313,8 @@ impl Workspace {
           id,
           Pane {
             session: Rc::new(session),
-            default_title: title.clone(),
-            title,
+            default_title: title.clone().into(),
+            title: title.into(),
             directory: pane_directory,
             content_bounds: Rc::new(std::cell::Cell::new(None)),
             line: String::new(),
@@ -335,9 +341,16 @@ impl Workspace {
   pub(crate) fn new_tab(&mut self, cx: &App) {
     let directory = self.focused_pane().and_then(|pane| pane.directory.clone()).or_else(|| self.directory.clone());
     if let Some(id) = self.spawn_pane(directory, cx) {
-      self.tabs.push(Tab { root: Node::Leaf(id), focused: id, pinned: false, title: None });
+      let tab = self.new_tab_value(Node::Leaf(id), id);
+      self.tabs.push(tab);
       self.active = self.tabs.len() - 1;
     }
+  }
+
+  /// A tab with a fresh identity.
+  fn new_tab_value(&mut self, root: Node, focused: PaneId) -> Tab {
+    self.next_tab += 1;
+    Tab { root, focused, pinned: false, title: None, id: self.next_tab }
   }
 
   /// Opens a saved tab: its split layout with a fresh shell in each pane's last directory.
@@ -357,7 +370,10 @@ impl Workspace {
       return None;
     }
     let focused = ids[saved.focused.min(ids.len() - 1)];
-    Some(Tab { root: layout.map_leaves(&mut ids.into_iter()), focused, pinned: saved.pinned, title: saved.title.clone() })
+    let mut tab = self.new_tab_value(layout.map_leaves(&mut ids.into_iter()), focused);
+    tab.pinned = saved.pinned;
+    tab.title = saved.title.clone().map(Into::into);
+    Some(tab)
   }
 
   fn restore_tab(&mut self, saved: &SavedTab, cx: &App) {
@@ -373,7 +389,7 @@ impl Workspace {
       directories: leaves.iter().map(|id| self.panes.get(id).and_then(|pane| pane.directory.clone()).unwrap_or_default()).collect(),
       focused: leaves.iter().position(|id| *id == tab.focused).unwrap_or(0),
       pinned: tab.pinned,
-      title: tab.title.clone(),
+      title: tab.title.as_ref().map(|title| title.to_string()),
     }
   }
 
@@ -382,7 +398,8 @@ impl Workspace {
     let Some(tab) = self.tabs.get(index) else { return };
     let directory = self.panes.get(&tab.focused).and_then(|pane| pane.directory.clone());
     if let Some(id) = self.spawn_pane(directory, cx) {
-      self.tabs.insert(index + 1, Tab { root: Node::Leaf(id), focused: id, pinned: false, title: None });
+      let tab = self.new_tab_value(Node::Leaf(id), id);
+      self.tabs.insert(index + 1, tab);
       self.active = index + 1;
     }
   }
@@ -406,7 +423,7 @@ impl Workspace {
         let _ = workspace.update(cx, |this, cx| {
           // The tab may have moved or closed while the dialog was open.
           if let Some(tab) = this.tabs.iter_mut().find(|tab| tab.focused == focused) {
-            tab.title = (!name.is_empty()).then_some(name);
+            tab.title = (!name.is_empty()).then(|| name.into());
           }
           cx.notify();
         });
@@ -419,7 +436,8 @@ impl Workspace {
   pub(crate) fn reload_tab(&mut self, index: usize, cx: &App) {
     let Some(old) = self.tabs.get(index) else { return };
     let saved = self.saved_tab(old);
-    if let Some(tab) = self.spawn_tab(&saved, cx) {
+    if let Some(mut tab) = self.spawn_tab(&saved, cx) {
+      tab.id = self.tabs[index].id;
       let old = std::mem::replace(&mut self.tabs[index], tab);
       for id in old.root.leaves() {
         self.panes.remove(&id);
@@ -465,7 +483,8 @@ impl Workspace {
   /// What is open in this window, for the next launch to continue from.
   pub fn saved_window(&self) -> SavedWindow {
     let tabs = self.tabs.iter().map(|tab| self.saved_tab(tab)).collect();
-    SavedWindow { tabs, active: self.active }
+    // The window's position is only known to the window itself; the app fills it in.
+    SavedWindow { tabs, active: self.active, bounds: None }
   }
 
   pub(crate) fn split(&mut self, split: Split, cx: &App) {
@@ -490,7 +509,7 @@ impl Workspace {
       let tab = self.tabs.remove(index);
       if let Some(root) = tab.root.remove(id) {
         let focused = if tab.focused == id { root.leaves()[0] } else { tab.focused };
-        self.tabs.insert(index, Tab { root, focused, pinned: tab.pinned, title: tab.title });
+        self.tabs.insert(index, Tab { root, focused, pinned: tab.pinned, title: tab.title, id: tab.id });
       } else if self.active == index {
         self.active = index.min(self.tabs.len().saturating_sub(1));
       } else if self.active > index {
@@ -570,16 +589,16 @@ impl Workspace {
   }
 
   /// The title of a tab: the name the user gave it, or the focused pane's title.
-  pub(crate) fn tab_title(&self, tab: &Tab) -> String {
+  pub(crate) fn tab_title(&self, tab: &Tab) -> SharedString {
     tab.title.clone().or_else(|| self.panes.get(&tab.focused).map(|pane| pane.title.clone())).unwrap_or_default()
   }
 
   /// The title of the selected tab, which names this window in the Window menu.
   pub fn title(&self) -> String {
     if let Some(title) = self.tabs.get(self.active).and_then(|tab| tab.title.clone()) {
-      return title;
+      return title.to_string();
     }
-    self.focused_pane().map(|pane| pane.title.clone()).unwrap_or_else(|| "mTerm".into())
+    self.focused_pane().map(|pane| pane.title.to_string()).unwrap_or_else(|| "mTerm".into())
   }
 
   // Input and history
@@ -842,7 +861,7 @@ impl Render for Workspace {
       } else if self.settings_shown {
         self.settings = None;
         self.settings_shown = false;
-        self.focus_handle.focus(window, cx);
+        cx.defer_in(window, |this, window, cx| this.focus_handle.focus(window, cx));
       }
     }
     let theme = cx.theme().clone();

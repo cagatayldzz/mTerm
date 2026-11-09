@@ -1,4 +1,4 @@
-use mterm_storage::{SavedState, SavedTab, SavedWindow};
+use mterm_storage::{SavedBounds, SavedState, SavedTab, SavedWindow};
 use std::{fs, path::PathBuf};
 
 fn temporary_file(name: &str) -> PathBuf {
@@ -22,10 +22,12 @@ fn state_round_trips_windows_tabs_and_directories() {
           SavedTab { layout: "L".into(), directories: vec![PathBuf::from("/")], focused: 0, pinned: false, title: None },
         ],
         active: 1,
+        bounds: Some(SavedBounds { x: 40., y: 60.5, width: 960., height: 600. }),
       },
       SavedWindow {
         tabs: vec![SavedTab { layout: "L".into(), directories: vec![PathBuf::from("/var")], focused: 0, pinned: false, title: None }],
         active: 0,
+        bounds: None,
       },
     ],
   };

@@ -46,11 +46,11 @@ the focused pane. All tabs of a window share one command history (`history.txt`)
 
 mTerm continues where it left off. The app keeps `state.json` in the data directory
 up to date with every window's tabs, split layouts, the directory of each pane, the
-focused pane and the selected tab (`SavedState` in `mterm-storage`, built from
+focused pane, the selected tab and each window's position and size (`SavedState` in `mterm-storage`, built from
 `Workspace::saved_window`). It is rewritten whenever that snapshot changes, and is
 kept when the last window closes. On launch each saved window is reopened with fresh
 shells in the saved directories; processes and terminal output cannot be restored. A
-missing directory falls back to the user's home directory. New tabs and splits start
+missing directory falls back to the user's home directory, and a window whose saved position is no longer on a connected display is placed like a new window. New tabs and splits start
 in the focused pane's directory.
 
 Panes report events over one channel tagged with their id; a shell that exits

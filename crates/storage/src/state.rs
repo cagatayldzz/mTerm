@@ -16,11 +16,22 @@ pub struct SavedTab {
   pub title: Option<String>,
 }
 
+/// Where a window was on screen, in logical pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SavedBounds {
+  pub x: f32,
+  pub y: f32,
+  pub width: f32,
+  pub height: f32,
+}
+
 /// One window and its tabs.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SavedWindow {
   pub tabs: Vec<SavedTab>,
   pub active: usize,
+  /// Where the window was; `None` when it was not recorded.
+  pub bounds: Option<SavedBounds>,
 }
 
 /// What was open when mTerm last ran, so the next launch can continue from it.
@@ -56,7 +67,11 @@ impl SavedState {
           .iter()
           .map(|tab| serde_json::json!({ "layout": tab.layout, "directories": tab.directories, "focused": tab.focused, "pinned": tab.pinned, "title": tab.title }))
           .collect();
-        serde_json::json!({ "tabs": tabs, "active": window.active })
+        serde_json::json!({
+          "tabs": tabs,
+          "active": window.active,
+          "bounds": window.bounds.map(|b| serde_json::json!({ "x": b.x, "y": b.y, "width": b.width, "height": b.height })),
+        })
       })
       .collect();
     let temporary = path.with_extension("json.tmp");
@@ -70,7 +85,12 @@ impl SavedState {
       return None;
     }
     let active = json.get("active").and_then(|value| value.as_u64()).unwrap_or(0) as usize;
-    Some(SavedWindow { active: active.min(tabs.len() - 1), tabs })
+    let bounds = json.get("bounds").and_then(|bounds| {
+      let number = |key: &str| bounds.get(key).and_then(|value| value.as_f64()).map(|value| value as f32);
+      let (x, y, width, height) = (number("x")?, number("y")?, number("width")?, number("height")?);
+      (width > 0. && height > 0.).then_some(SavedBounds { x, y, width, height })
+    });
+    Some(SavedWindow { active: active.min(tabs.len() - 1), tabs, bounds })
   }
 
   fn tab_from_json(json: &serde_json::Value) -> Option<SavedTab> {

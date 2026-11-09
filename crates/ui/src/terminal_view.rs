@@ -635,7 +635,7 @@ impl Workspace {
       .into_any_element()
   }
 
-  fn render_pane_header(&self, id: PaneId, title: String, focused: bool, cx: &mut Context<Self>) -> impl IntoElement {
+  fn render_pane_header(&self, id: PaneId, title: SharedString, focused: bool, cx: &mut Context<Self>) -> impl IntoElement {
     let theme = cx.theme().clone();
     let action_context = self.focus_handle.clone();
     let workspace = cx.weak_entity();

@@ -4,7 +4,7 @@
 
 use futures::StreamExt as _;
 use gpui_kit::{component::TitleBar, *};
-use mterm_storage::{directory_from_url, SavedState, SavedWindow, WindowSize};
+use mterm_storage::{directory_from_url, SavedBounds, SavedState, SavedWindow, WindowSize};
 use mterm_ui::{
   log_failure, Assets, CheckForUpdates, ClearHistory, ClearScreen, ClosePane, Copy, DecreaseFontSize, Find, FindNext, FindPrevious, Hide, HideOthers,
   IncreaseFontSize, Minimize, NewTab, NewWindow, NextPane, NextTab, OpenSettings, Paste, PreviousPane, PreviousTab, Quit, ResetFontSize, SelectAll,
@@ -118,11 +118,18 @@ fn open_folders(urls: &[String], cx: &mut App) {
 fn open_window(directory: Option<PathBuf>, restore: Option<SavedWindow>, cx: &mut App) {
   let saved_size = WindowSize::load(&WindowSize::default_path());
   let size = size(px(saved_size.width), px(saved_size.height));
-  // A new window cascades from the active one; the first is centered.
-  let bounds = cx
-    .active_window()
-    .and_then(|window| window.update(cx, |_, window, _| window.window_bounds().get_bounds()).ok())
-    .map(|active| Bounds { origin: active.origin + point(px(CASCADE), px(CASCADE)), size })
+  // A restored window goes back where it was, when that place is still on a screen. A new window
+  // cascades from the active one; the first is centered.
+  let bounds = restore
+    .as_ref()
+    .and_then(|window| window.bounds)
+    .map(|saved| Bounds::new(point(px(saved.x), px(saved.y)), gpui_kit::size(px(saved.width), px(saved.height))))
+    .filter(|bounds| on_a_screen(bounds, cx))
+    .or_else(|| {
+      cx.active_window()
+        .and_then(|window| window.update(cx, |_, window, _| window.window_bounds().get_bounds()).ok())
+        .map(|active| Bounds { origin: active.origin + point(px(CASCADE), px(CASCADE)), size })
+    })
     .unwrap_or_else(|| Bounds::centered(None, size, cx));
   let options = WindowOptions {
     window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -139,12 +146,15 @@ fn open_window(directory: Option<PathBuf>, restore: Option<SavedWindow>, cx: &mu
     });
     cx.new(|cx| {
       let mut last_size = None;
-      cx.observe_window_bounds(window, move |_, window, _| {
+      cx.observe_window_bounds(window, move |_, window, cx| {
         let size = window.window_bounds().get_bounds().size;
         if last_size != Some(size) {
           save_window_size(window);
           last_size = Some(size);
         }
+        // Moving or resizing changes what the next launch restores. Deferred: this workspace is
+        // being updated right now, so it cannot be read here.
+        cx.defer(save_state);
       })
       .detach();
       cx.observe_window_activation(window, |_, _, cx| cx.defer(refresh_window_menu)).detach();
@@ -160,6 +170,15 @@ fn open_window(directory: Option<PathBuf>, restore: Option<SavedWindow>, cx: &mu
   })
   .detach();
   refresh_window_menu(cx);
+}
+
+/// Whether a saved window still has a visible part. Displays report their sizes but not reliably
+/// where they sit next to each other, so this only rejects windows far beyond the total area.
+fn on_a_screen(bounds: &Bounds<Pixels>, cx: &App) -> bool {
+  let displays = cx.displays();
+  let width: Pixels = displays.iter().map(|display| display.bounds().size.width).fold(px(0.), |total, width| total + width);
+  let height: Pixels = displays.iter().map(|display| display.bounds().size.height).fold(px(0.), |most, height| most.max(height));
+  bounds.right() > px(0.) && bounds.bottom() > px(0.) && bounds.origin.x < width && bounds.origin.y < height * 2.
 }
 
 /// Rebuilds the menu bar with one numbered entry per open window, the front one checked.
@@ -191,7 +210,27 @@ fn save_state(cx: &mut App) {
     return;
   }
   let windows: Vec<_> = open.windows.clone();
-  let state = SavedState { windows: windows.iter().map(|(_, workspace)| workspace.read(cx).saved_window()).collect() };
+  let state = SavedState {
+    windows: windows
+      .iter()
+      .enumerate()
+      .map(|(index, (handle, workspace))| {
+        let mut saved = workspace.read(cx).saved_window();
+        // A window that is being updated right now cannot be asked; keep what was saved for it.
+        saved.bounds = handle
+          .update(cx, |_, window, _| window.window_bounds().get_bounds())
+          .ok()
+          .map(|bounds| SavedBounds {
+            x: bounds.origin.x.into(),
+            y: bounds.origin.y.into(),
+            width: bounds.size.width.into(),
+            height: bounds.size.height.into(),
+          })
+          .or_else(|| cx.global::<OpenWindows>().saved.windows.get(index).and_then(|window| window.bounds));
+        saved
+      })
+      .collect(),
+  };
   if cx.global::<OpenWindows>().saved == state {
     return;
   }

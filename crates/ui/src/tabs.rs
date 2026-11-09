@@ -63,6 +63,7 @@ impl Workspace {
       .enumerate()
       .map(|(index, tab)| {
         let pinned = tab.pinned;
+        let tab_id = tab.id;
         let workspace = cx.weak_entity();
         // Everything sits inside the tab's own surface, so the selected tab's highlight holds the
         // icon, the title and the button together.
@@ -73,7 +74,7 @@ impl Workspace {
           .child(div().w_40().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(self.tab_title(tab)))
           .when(!pinned, |this| {
             this.child(close_button(
-              ("tab-close", index),
+              ("tab-close", tab_id),
               cx.listener(move |this, _, window, cx| {
                 this.close_tab(index, window);
                 cx.notify();
@@ -83,7 +84,7 @@ impl Workspace {
         let item = Tab::new();
         // The menu opens from anywhere on the tab except its button, which sits above this layer.
         item
-          .child(div().id(("tab-menu", index)).absolute().size_full().context_menu(move |menu, _, _| {
+          .child(div().id(("tab-menu", tab_id)).absolute().size_full().context_menu(move |menu, _, _| {
             let item = |label: &'static str, action: fn(&mut Workspace, usize, &mut Window, &mut Context<Workspace>)| {
               let workspace = workspace.clone();
               PopupMenuItem::new(label).on_click(move |_, window, cx| {
