@@ -7,7 +7,7 @@ mod preferences;
 mod state;
 mod window_size;
 
-pub use dropped_files::prepare_dropped_paths;
+pub use dropped_files::{open_dropped_paths, prepare_dropped_paths, DroppedPaths};
 pub use history::History;
 pub use paths::{data_dir, directory_from_url};
 pub use preferences::{FontChoice, Preferences, ThemeChoice};

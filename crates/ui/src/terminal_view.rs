@@ -463,11 +463,11 @@ impl Workspace {
         if let Some(pane) = this.panes.get_mut(&id) {
           pane.selection_dragging = false;
         }
-        let paths = paths.paths().to_vec();
+        let paths = mterm_storage::open_dropped_paths(paths.paths());
         this.focus_pane(id, window, cx);
         let task_id = this.next_drop;
         this.next_drop += 1;
-        let preparation = cx.background_executor().spawn(async move { mterm_storage::prepare_dropped_paths(&paths) });
+        let preparation = cx.background_executor().spawn(async move { paths.and_then(|paths| paths.prepare()) });
         let task = cx.spawn_in(window, async move |this, cx| {
           let result = preparation.await;
           let _ = this.update_in(cx, |this, window, cx| {

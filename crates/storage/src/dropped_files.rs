@@ -9,8 +9,44 @@ static NEXT_DROP: AtomicU64 = AtomicU64::new(0);
 
 /// Copies macOS screenshot thumbnails out of their protected temporary directory.
 /// The copied files remain available after the originating drag has ended.
+pub struct DroppedPaths(Vec<DroppedPath>);
+
+enum DroppedPath {
+  Screenshot { path: PathBuf, source: fs::File },
+  Regular(PathBuf),
+}
+
+/// Opens temporary screenshots while the originating drag is still active.
+pub fn open_dropped_paths(paths: &[PathBuf]) -> io::Result<DroppedPaths> {
+  paths
+    .iter()
+    .map(|path| {
+      if is_screenshot_thumbnail(path) {
+        Ok(DroppedPath::Screenshot { path: path.clone(), source: fs::File::open(path)? })
+      } else {
+        Ok(DroppedPath::Regular(path.clone()))
+      }
+    })
+    .collect::<io::Result<Vec<_>>>()
+    .map(DroppedPaths)
+}
+
+impl DroppedPaths {
+  /// Copies opened screenshots to persistent temporary files.
+  pub fn prepare(self) -> io::Result<Vec<PathBuf>> {
+    self
+      .0
+      .into_iter()
+      .map(|path| match path {
+        DroppedPath::Screenshot { path, source } => copy_screenshot(&path, source),
+        DroppedPath::Regular(path) => Ok(path),
+      })
+      .collect()
+  }
+}
+
 pub fn prepare_dropped_paths(paths: &[PathBuf]) -> io::Result<Vec<PathBuf>> {
-  paths.iter().map(|path| if is_screenshot_thumbnail(path) { copy_screenshot(path) } else { Ok(path.clone()) }).collect()
+  open_dropped_paths(paths)?.prepare()
 }
 
 fn is_screenshot_thumbnail(path: &Path) -> bool {
@@ -19,8 +55,7 @@ fn is_screenshot_thumbnail(path: &Path) -> bool {
     && parent.parent().and_then(Path::file_name).is_some_and(|name| name == "TemporaryItems")
 }
 
-fn copy_screenshot(path: &Path) -> io::Result<PathBuf> {
-  let mut source = fs::File::open(path)?;
+fn copy_screenshot(path: &Path, mut source: fs::File) -> io::Result<PathBuf> {
   let directory = std::env::temp_dir().join("mterm-dropped-images");
   fs::create_dir_all(&directory)?;
   let extension = path.extension().and_then(|extension| extension.to_str()).filter(|extension| extension.chars().all(|c| c.is_ascii_alphanumeric()));
