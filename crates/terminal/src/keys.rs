@@ -65,7 +65,8 @@ pub fn paste_bytes(text: &str, bracketed: bool) -> Vec<u8> {
   }
 }
 
-/// Formats dropped paths as shell arguments without executing them.
+/// Formats dropped paths as shell arguments without executing them. Each path is followed by a
+/// space, as in Terminal and iTerm2, so a second drop does not run into the first path.
 pub fn dropped_paths<'a>(paths: impl IntoIterator<Item = &'a std::path::Path>) -> String {
   paths
     .into_iter()
@@ -73,15 +74,18 @@ pub fn dropped_paths<'a>(paths: impl IntoIterator<Item = &'a std::path::Path>) -
       let text = path.to_string_lossy();
       let mut escaped = String::new();
       for character in text.chars() {
-        if !character.is_ascii_alphanumeric() && !matches!(character, '/' | '.' | '_' | '-') {
+        // Shells only split words at ASCII whitespace, so letters like `ş` or the narrow no-break
+        // space in macOS screenshot names stay as they are; a backslash before them would end up
+        // in the path of programs that read the pasted text themselves.
+        if character.is_ascii() && !character.is_ascii_alphanumeric() && !matches!(character, '/' | '.' | '_' | '-') {
           escaped.push('\\');
         }
         escaped.push(character);
       }
       escaped
     })
-    .collect::<Vec<_>>()
-    .join(" ")
+    .map(|path| path + " ")
+    .collect()
 }
 
 fn control_byte(c: char) -> Option<u8> {

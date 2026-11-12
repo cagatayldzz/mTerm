@@ -4,7 +4,27 @@ use mterm_terminal::{dropped_paths, encode_key, paste_bytes, Modifiers};
 fn dropped_paths_are_escaped_as_separate_shell_arguments() {
   use std::path::Path;
 
-  assert_eq!(dropped_paths([Path::new("/tmp/a file.png"), Path::new("/tmp/it's $(here).png")]), "/tmp/a\\ file.png /tmp/it\\'s\\ \\$\\(here\\).png");
+  assert_eq!(dropped_paths([Path::new("/tmp/a file.png"), Path::new("/tmp/it's $(here).png")]), "/tmp/a\\ file.png /tmp/it\\'s\\ \\$\\(here\\).png ");
+}
+
+#[test]
+fn dropped_paths_end_with_a_space_so_the_next_drop_does_not_glue_to_them() {
+  use std::path::Path;
+
+  // Dropping two screenshots one after the other must leave two separate paths on the line.
+  let first = dropped_paths([Path::new("/tmp/a.png")]);
+  let second = dropped_paths([Path::new("/tmp/b.png")]);
+  assert_eq!(format!("{first}{second}"), "/tmp/a.png /tmp/b.png ");
+}
+
+#[test]
+fn dropped_paths_keep_non_ascii_characters_unescaped() {
+  use std::path::Path;
+
+  // `\ş` or `\<U+202F>` would reach programs that read the pasted path themselves as part of the
+  // file name, and the file would not be found.
+  assert_eq!(dropped_paths([Path::new("/Users/me/görsel şeması.png")]), "/Users/me/görsel\\ şeması.png ");
+  assert_eq!(dropped_paths([Path::new("/Users/me/Screenshot 9.20.15\u{202f}PM.png")]), "/Users/me/Screenshot\\ 9.20.15\u{202f}PM.png ");
 }
 
 fn plain() -> Modifiers {
