@@ -1,13 +1,10 @@
-<img src="apps/mterm/macos/icon.svg" alt="mTerm app icon" width="112">
-
-# mTerm
+# <img src="apps/mterm/macos/icon.svg" alt="" width="48" align="absmiddle"> mTerm
 
 A minimal native terminal for macOS, built with Rust and [GPUI](https://gpui.rs).
 
-<p>
-  <img src="docs/images/terminal.png" alt="mTerm terminal window" width="49%">
-  <img src="docs/images/settings.png" alt="mTerm settings dialog" width="49%">
-</p>
+| Terminal | Settings |
+| --- | --- |
+| ![mTerm terminal window](docs/images/terminal.png) | ![mTerm settings dialog](docs/images/settings.png) |
 
 mTerm brings tabs and split panes together in a focused workspace and picks up where
 you left off: windows, tabs, splits and folders return on the next launch. Search the
