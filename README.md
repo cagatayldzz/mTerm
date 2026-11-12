@@ -1,4 +1,4 @@
-# <img src="apps/mterm/macos/icon.svg" alt="" width="48" align="absmiddle"> mTerm
+# <img src="apps/mterm/macos/icon.png" alt="" width="48" align="absmiddle"> mTerm
 
 A minimal native terminal for macOS, built with Rust and [GPUI](https://gpui.rs).
 
