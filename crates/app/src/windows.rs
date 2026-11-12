@@ -1,6 +1,9 @@
 //! The open windows: the registry the menus and state saving read, and opening, placing and selecting windows.
 
-use crate::{menus::set_menus, persistence::save_state};
+use crate::{
+  menus::{set_dock_menu, set_menus},
+  persistence::save_state,
+};
 use gpui_kit::{component::TitleBar, *};
 use mterm_storage::{directory_from_url, SavedState, SavedWindow, WindowSize};
 use mterm_ui::{log_failure, Workspace, TOOLBAR_HEIGHT};
@@ -12,6 +15,8 @@ pub(crate) struct OpenWindows {
   pub(crate) windows: Vec<(AnyWindowHandle, Entity<Workspace>)>,
   /// The titles and front state the menus were last built from.
   pub(crate) shown: Vec<(String, bool)>,
+  /// The language the menus were last built in.
+  pub(crate) menu_language: Option<mterm_storage::Language>,
   /// What was last written to disk, so only real changes are saved.
   pub(crate) saved: SavedState,
   /// Set once the app is quitting: windows closing then are not the user leaving them.
@@ -114,7 +119,9 @@ pub(crate) fn refresh_window_menu(cx: &mut App) {
     .iter()
     .map(|(handle, workspace)| (workspace.read(cx).title(), handle.update(cx, |_, window, _| window.is_window_active()).unwrap_or(false)))
     .collect();
-  if cx.global::<OpenWindows>().shown == entries {
+  // A language change rebuilds the menus even though no window changed.
+  let language = mterm_ui::language();
+  if cx.global::<OpenWindows>().shown == entries && cx.global::<OpenWindows>().menu_language == Some(language) {
     return;
   }
   // The Dock lists the native title of each window; the number is the shortcut that selects it.
@@ -123,7 +130,9 @@ pub(crate) fn refresh_window_menu(cx: &mut App) {
     let _ = handle.update(cx, |_, window, _| window.set_window_title(&title));
   }
   set_menus(cx, &entries);
+  set_dock_menu(cx);
   cx.global_mut::<OpenWindows>().shown = entries;
+  cx.global_mut::<OpenWindows>().menu_language = Some(language);
 }
 
 pub(crate) fn select_window(index: usize, cx: &mut App) {

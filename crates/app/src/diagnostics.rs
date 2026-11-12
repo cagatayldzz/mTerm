@@ -5,7 +5,7 @@ use gpui_kit::{
   *,
 };
 use mterm_storage::{issue_url, scrub_home, Diagnostics};
-use mterm_ui::{ReportIssue, ShowLogs};
+use mterm_ui::{t, ReportIssue, ShowLogs};
 use std::{backtrace::Backtrace, panic, path::PathBuf, process::Command, time::Duration};
 
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
@@ -96,10 +96,10 @@ pub(crate) fn announce_previous_crash(cx: &mut App) {
       }
       let _ = handle.update(cx, |_, window, cx| {
         window.push_notification(
-          Notification::warning("mTerm quit unexpectedly last time. Nothing was sent anywhere; you decide whether to report it.")
-            .title("mTerm crashed")
+          Notification::warning(t("mTerm quit unexpectedly last time. Nothing was sent anywhere; you decide whether to report it."))
+            .title(t("mTerm crashed"))
             .action(|_, _, cx| {
-              Button::new("report-crash").label("Report an Issue").small().on_click(cx.listener(|notification, _, window, cx| {
+              Button::new("report-crash").label(t("Report an Issue")).small().on_click(cx.listener(|notification, _, window, cx| {
                 window.dispatch_action(Box::new(ReportIssue), cx);
                 notification.dismiss(window, cx);
               }))

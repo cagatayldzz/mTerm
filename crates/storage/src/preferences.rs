@@ -1,4 +1,4 @@
-use crate::paths::data_dir;
+use crate::{language::Language, paths::data_dir};
 use std::{
   fs, io,
   path::{Path, PathBuf},
@@ -86,11 +86,20 @@ pub struct Preferences {
   pub font: FontChoice,
   pub terminal_font_size: u8,
   pub terminal_line_height: u8,
+  /// `None` follows the computer's preferred languages.
+  pub language: Option<Language>,
 }
 
 impl Default for Preferences {
   fn default() -> Self {
-    Self { check_updates: true, theme: ThemeChoice::System, font: FontChoice::Default, terminal_font_size: 12, terminal_line_height: 16 }
+    Self {
+      check_updates: true,
+      theme: ThemeChoice::System,
+      font: FontChoice::Default,
+      terminal_font_size: 12,
+      terminal_line_height: 16,
+      language: None,
+    }
   }
 }
 
@@ -108,6 +117,7 @@ impl Preferences {
         "check_updates" => preferences.check_updates = value.trim().parse().unwrap_or(preferences.check_updates),
         "theme" => preferences.theme = ThemeChoice::from_code(value),
         "font" => preferences.font = FontChoice::from_code(value),
+        "language" => preferences.language = Language::from_code(value),
         "terminal_font_size" => {
           if let Ok(size @ 9..=24) = value.trim().parse::<u8>() {
             preferences.terminal_font_size = size;
@@ -132,12 +142,13 @@ impl Preferences {
     fs::write(
       path,
       format!(
-        "check_updates={}\ntheme={}\nfont={}\nterminal_font_size={}\nterminal_line_height={}\n",
+        "check_updates={}\ntheme={}\nfont={}\nterminal_font_size={}\nterminal_line_height={}\nlanguage={}\n",
         self.check_updates,
         self.theme.code(),
         self.font.code(),
         self.terminal_font_size,
-        self.terminal_line_height
+        self.terminal_line_height,
+        self.language.map_or("system", Language::code)
       ),
     )
   }

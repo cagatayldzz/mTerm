@@ -3,6 +3,7 @@
 mod assets;
 mod components;
 mod find;
+pub mod i18n;
 mod layout;
 mod model;
 mod selection;
@@ -16,6 +17,7 @@ use gpui_kit::*;
 
 pub use assets::Assets;
 pub use components::log_failure;
+pub use i18n::{language, resolve_language, set_language, t, tf};
 pub use model::{AppGlobal, AppModel, AppUpdate, APP_UPDATES_ENABLED, APP_VERSION};
 pub use workspace::{Workspace, CONTEXT, TOOLBAR_HEIGHT};
 
@@ -70,6 +72,7 @@ pub fn init(cx: &mut App) {
     eprintln!("Could not load fonts: {error}");
   }
   let model = cx.new(|_| AppModel::new());
+  set_language(resolve_language(model.read(cx).preferences.language));
   cx.set_global(AppGlobal(model.clone()));
   if APP_UPDATES_ENABLED && model.read(cx).preferences.check_updates {
     model.update(cx, |model, cx| model.check_update(cx));

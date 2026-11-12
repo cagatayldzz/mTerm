@@ -2,7 +2,7 @@
 
 use futures::{channel::mpsc, StreamExt};
 use gpui_kit::*;
-use mterm_storage::{FontChoice, Preferences, ThemeChoice};
+use mterm_storage::{FontChoice, Language, Preferences, ThemeChoice};
 use mterm_updater::{Release, Stage, Staged};
 use std::time::SystemTime;
 
@@ -107,6 +107,13 @@ impl AppModel {
     let defaults = Preferences::default();
     self.preferences.terminal_font_size = defaults.terminal_font_size;
     self.preferences.terminal_line_height = defaults.terminal_line_height;
+    self.save(cx);
+  }
+
+  /// `None` follows the computer's preferred languages.
+  pub fn set_language(&mut self, choice: Option<Language>, cx: &mut Context<Self>) {
+    self.preferences.language = choice;
+    crate::i18n::set_language(crate::i18n::resolve_language(choice));
     self.save(cx);
   }
 

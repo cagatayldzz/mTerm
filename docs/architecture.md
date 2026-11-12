@@ -25,10 +25,11 @@ apps/mterm ─► app ─► ui ─► terminal
 | `crates/ui/src/tabs.rs` | top band, `TabBar`, tab context menu |
 | `crates/ui/src/terminal_view.rs` | pane rendering, mouse, selection, scrollbar, split dividers |
 | `crates/ui/src/components.rs` | shared pieces: `icon_button`, `close_button`, `truncated`, `pane_menu`, `log_failure` |
+| `crates/ui/src/i18n/` | `t`/`tf`, the current language, one table per language (`english.rs` lists the keys) |
 | `crates/ui/src/{find,selection,layout,settings,theme,model,assets}.rs` | find bar, selection math, split tree (`Node`), Settings pages, themes, `AppModel`, icons |
 | `crates/terminal/src/session.rs` | `Session`: PTY, `alacritty_terminal`, shell directory lookup |
 | `crates/terminal/src/{snapshot,palette,keys,mouse,search}.rs` | styled screen snapshot, colors, key and mouse encoding, scrollback search |
-| `crates/storage/src/` | `state.rs` (`SavedState`), `history.rs`, `preferences.rs`, `window_size.rs`, `paths.rs`, `dropped_files.rs`, `diagnostics.rs` (log, crash reports, issue URL) |
+| `crates/storage/src/` | `state.rs` (`SavedState`), `history.rs`, `preferences.rs`, `window_size.rs`, `paths.rs`, `dropped_files.rs`, `diagnostics.rs` (log, crash reports, issue URL), `language.rs` (`Language`, macOS language tags) |
 | `crates/updater/src/`, `crates/version/src/` | release lookup, download, verification, bundle swap; version comparison |
 
 ## Terminal data flow
@@ -57,7 +58,7 @@ Data directory `~/Library/Application Support/mTerm` (override with `MTERM_DATA_
 | --- | --- | --- |
 | `state.json` | `SavedState` → `SavedWindow` → `SavedTab` | whenever the snapshot changes |
 | `history.txt` | `History` | on each recorded command or clear |
-| `preferences.txt` | `Preferences` | on each settings change |
+| `preferences.txt` | `Preferences` (theme, font, sizes, `language=system` or a code such as `tr`) | on each settings change |
 | `window-size.txt` | `WindowSize` | on resize and close; default for new windows |
 
 Restore flow:
@@ -92,3 +93,22 @@ Restore flow:
   last crash and the log tail. `ShowLogs` opens the folder in Finder.
 - Crashes outside Rust (signals) are written by macOS to `~/Library/Logs/DiagnosticReports`; the
   issue text asks the user to attach that file.
+
+## Languages
+
+English, 简体中文, Español, Deutsch, Français, 日本語, Português (Brasil), Русский, 한국어, Türkçe.
+
+- The English text is the key: `t("Copy")` returns the current language's text, or the English
+  original when a table has no entry. `tf("{index} of {count}", &[("index", "2"), ("count", "9")])`
+  fills placeholders. Both read a process-wide language set by `set_language`.
+- `Preferences.language` is `None` (follow the first preferred language from
+  `defaults read -g AppleLanguages` that is translated, else English) or a chosen `Language`.
+  Changing it in Settings → General updates `set_language`; the menus and the Dock menu are rebuilt
+  (`refresh_window_menu` compares the language) and every window re-renders.
+- Translated: menus, context menus, Settings, tooltips, dialogs, notifications. Not translated on
+  purpose: the log, crash reports and the prefilled GitHub issue (maintainers read them), and error
+  texts coming from the OS or the updater.
+- To add a text, use `t("…")` and add a row to every table. To add a language, add a `Language`
+  variant and a table. The tests in `crates/ui/tests/i18n.rs` fail when a table misses a key,
+  changes a `{placeholder}`, leaves most texts in English, or when `t("…")` is called with a text that
+  has no entry (or an entry is never used).

@@ -1,4 +1,4 @@
-use mterm_storage::{FontChoice, Preferences, ThemeChoice};
+use mterm_storage::{FontChoice, Language, Preferences, ThemeChoice};
 
 #[test]
 fn preferences_have_sensible_defaults() {
@@ -13,8 +13,14 @@ fn preferences_have_sensible_defaults() {
 fn preferences_round_trip() {
   let dir = std::env::temp_dir().join(format!("mterm-prefs-{}", std::process::id()));
   let path = dir.join("preferences.txt");
-  let saved =
-    Preferences { check_updates: false, theme: ThemeChoice::SlateDark, font: FontChoice::Geist, terminal_font_size: 18, terminal_line_height: 24 };
+  let saved = Preferences {
+    check_updates: false,
+    theme: ThemeChoice::SlateDark,
+    font: FontChoice::Geist,
+    terminal_font_size: 18,
+    terminal_line_height: 24,
+    language: Some(Language::Turkish),
+  };
   saved.save(&path).unwrap();
   assert_eq!(Preferences::load(&path), saved);
   std::fs::remove_dir_all(dir).unwrap();
@@ -55,4 +61,23 @@ fn font_codes_round_trip_and_unknown_fonts_use_default() {
     assert_eq!(FontChoice::from_code(choice.code()), choice);
   }
   assert_eq!(FontChoice::from_code("unknown"), FontChoice::Default);
+}
+
+#[test]
+fn the_language_follows_the_system_unless_one_is_chosen() {
+  let dir = std::env::temp_dir().join(format!("mterm-prefs-language-{}", std::process::id()));
+  let path = dir.join("preferences.txt");
+  std::fs::create_dir_all(&dir).unwrap();
+  assert_eq!(Preferences::default().language, None);
+  for (text, expected) in [("language=pt-BR\n", Some(Language::Portuguese)), ("language=system\n", None), ("language=klingon\n", None)] {
+    std::fs::write(&path, text).unwrap();
+    assert_eq!(Preferences::load(&path).language, expected, "{text:?}");
+  }
+  let chosen = Preferences { language: Some(Language::Chinese), ..Preferences::default() };
+  chosen.save(&path).unwrap();
+  assert_eq!(Preferences::load(&path).language, Some(Language::Chinese));
+  let system = Preferences::default();
+  system.save(&path).unwrap();
+  assert_eq!(Preferences::load(&path).language, None);
+  std::fs::remove_dir_all(dir).unwrap();
 }

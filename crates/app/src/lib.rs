@@ -40,6 +40,10 @@ pub fn run() {
     bind_keys(cx);
     register_actions(cx);
 
+    // The menus follow the language chosen in Settings.
+    let model = cx.global::<mterm_ui::AppGlobal>().0.clone();
+    cx.observe(&model, |_, cx| refresh_window_menu(cx)).detach();
+
     cx.on_action(|_: &Quit, cx| cx.quit());
     cx.on_action(|_: &Hide, cx| cx.hide());
     cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());

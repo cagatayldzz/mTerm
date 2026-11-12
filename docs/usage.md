@@ -73,3 +73,10 @@ with your mTerm and macOS versions, the last crash and the end of the log filled
 sent until you submit it. **Help → Show Logs in Finder** opens `~/Library/Logs/mTerm`, where you
 can attach the full `mterm.log`. If mTerm crashed hard, also attach the newest `mTerm-*.ips` from
 `~/Library/Logs/DiagnosticReports`. After a crash, mTerm offers to report it on the next launch.
+
+## Language
+
+mTerm follows your computer's preferred languages and is available in English, 简体中文,
+Español, Deutsch, Français, 日本語, Português (Brasil), Русский, 한국어 and Türkçe. Change it in
+Settings → General → Language; menus and settings switch immediately. The translations were not
+all written by native speakers: corrections are welcome as issues or pull requests.

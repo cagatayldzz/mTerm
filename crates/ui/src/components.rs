@@ -10,7 +10,7 @@ use gpui_kit::{
 };
 use std::io;
 
-use crate::{ClearScreen, ClosePane, Copy, NewTab, NewWindow, Paste, SplitHorizontally, SplitVertically};
+use crate::{i18n::t, ClearScreen, ClosePane, Copy, NewTab, NewWindow, Paste, SplitHorizontally, SplitVertically};
 
 /// A ghost icon button with a tooltip, for the toolbar and the find bar.
 pub(crate) fn icon_button(
@@ -40,17 +40,17 @@ pub(crate) fn truncated() -> Div {
 pub(crate) fn pane_menu(menu: PopupMenu, context: &FocusHandle) -> PopupMenu {
   menu
     .action_context(context.clone())
-    .menu("New Window", Box::new(NewWindow))
-    .menu("New Tab", Box::new(NewTab))
+    .menu(t("New Window"), Box::new(NewWindow))
+    .menu(t("New Tab"), Box::new(NewTab))
     .separator()
-    .menu("Split Pane Vertically", Box::new(SplitVertically))
-    .menu("Split Pane Horizontally", Box::new(SplitHorizontally))
+    .menu(t("Split Pane Vertically"), Box::new(SplitVertically))
+    .menu(t("Split Pane Horizontally"), Box::new(SplitHorizontally))
     .separator()
-    .menu("Copy", Box::new(Copy))
-    .menu("Paste", Box::new(Paste))
-    .menu("Clear Buffer", Box::new(ClearScreen))
+    .menu(t("Copy"), Box::new(Copy))
+    .menu(t("Paste"), Box::new(Paste))
+    .menu(t("Clear Buffer"), Box::new(ClearScreen))
     .separator()
-    .menu("Close", Box::new(ClosePane))
+    .menu(t("Close"), Box::new(ClosePane))
 }
 
 /// Reports a failed save on stderr; the app keeps running without what could not be saved.
