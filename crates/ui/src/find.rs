@@ -35,7 +35,7 @@ impl Workspace {
       cx.notify();
       return;
     }
-    let input = cx.new(|cx| InputState::new(window, cx).placeholder(t("Find")));
+    let input = cx.new(|cx| InputState::new(window, cx).placeholder(t("find.title")));
     let subscription = cx.subscribe_in(&input, window, |this, _, event: &InputEvent, window, cx| match event {
       InputEvent::Change => this.refresh_find(window, cx),
       // Return goes toward older output, ⇧Return back toward newer.
@@ -118,8 +118,8 @@ impl Workspace {
     let has_query = !find.input.read(cx).value().is_empty();
     let status = match (find.current, find.matches.len()) {
       _ if !has_query => String::new(),
-      (Some(index), count) => tf("{index} of {count}", &[("index", &(index + 1).to_string()), ("count", &count.to_string())]),
-      (None, _) => t("No results").into(),
+      (Some(index), count) => tf("find.position", &[("index", &(index + 1).to_string()), ("count", &count.to_string())]),
+      (None, _) => t("find.no_results").into(),
     };
     Some(
       h_flex()
@@ -137,20 +137,20 @@ impl Workspace {
         .shadow_md()
         .child(div().w_48().child(Input::new(&find.input)))
         .child(div().w_16().text_xs().text_color(theme.muted_foreground).child(status))
-        .child(Button::new("find-case").label("Aa").ghost().xsmall().selected(find.case_sensitive).tooltip(t("Match case")).on_click(cx.listener(
-          |this, _, window, cx| {
+        .child(Button::new("find-case").label("Aa").ghost().xsmall().selected(find.case_sensitive).tooltip(t("find.match_case")).on_click(
+          cx.listener(|this, _, window, cx| {
             if let Some(find) = &mut this.find {
               find.case_sensitive = !find.case_sensitive;
             }
             this.refresh_find(window, cx);
-          },
-        )))
+          }),
+        ))
         .child(
           Button::new("find-older")
             .label("↑")
             .ghost()
             .xsmall()
-            .tooltip(t("Older match (⌘G)"))
+            .tooltip(t("find.older"))
             .on_click(cx.listener(|this, _, _, cx| this.step_find(true, cx))),
         )
         .child(
@@ -158,7 +158,7 @@ impl Workspace {
             .label("↓")
             .ghost()
             .xsmall()
-            .tooltip(t("Newer match (⇧⌘G)"))
+            .tooltip(t("find.newer"))
             .on_click(cx.listener(|this, _, _, cx| this.step_find(false, cx))),
         )
         .child(icon_button("find-close", IconName::Close, "Close (Esc)", cx.listener(|this, _, window, cx| this.close_find(window, cx)))),

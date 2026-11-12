@@ -9,7 +9,7 @@ description = "mTerm interface views built with GPUI Kit"
 autotests = false
 
 [package.metadata.layers]
-dependencies = ["mterm-terminal", "mterm-storage", "mterm-updater", "futures", "gpui-kit", "gpui-kit-assets", "unicode-width", "url"]
+dependencies = ["mterm-terminal", "mterm-storage", "mterm-updater", "futures", "serde_json", "gpui-kit", "gpui-kit-assets", "unicode-width", "url"]
 
 [lints]
 workspace = true
@@ -24,5 +24,6 @@ mterm-updater.workspace = true
 gpui-kit.workspace = true
 gpui-kit-assets.workspace = true
 futures.workspace = true
+serde_json.workspace = true
 unicode-width = "0.2"
 url = "2"

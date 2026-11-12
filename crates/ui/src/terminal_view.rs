@@ -150,7 +150,7 @@ impl Workspace {
   pub(crate) fn render_tab_content(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
     let palette = Self::palette(cx);
     let Some(tab) = self.tabs.get(self.active) else {
-      let message = self.error.clone().unwrap_or_else(|| t("No shell is running.").into());
+      let message = self.error.clone().unwrap_or_else(|| t("error.no_shell").into());
       return div().flex_1().p(PADDING).bg(color(palette.background)).text_color(color(palette.foreground)).child(message).into_any_element();
     };
     let (root, focused) = (tab.root.clone(), tab.focused);
@@ -490,10 +490,8 @@ impl Workspace {
                 }
               }
               Err(error) => {
-                window.push_notification(
-                  component::notification::Notification::error(tf("Could not prepare dropped file: {error}", &[("error", &error.to_string())])),
-                  cx,
-                );
+                window
+                  .push_notification(component::notification::Notification::error(tf("error.dropped_file", &[("error", &error.to_string())])), cx);
               }
             }
           });
@@ -700,7 +698,7 @@ impl Workspace {
           .xsmall()
           .dropdown_menu(move |menu, _, _| {
             let workspace = menu_workspace.clone();
-            pane_menu(menu, &action_context).separator().item(PopupMenuItem::new(if pinned { t("Unpin") } else { t("Pin") }).on_click(
+            pane_menu(menu, &action_context).separator().item(PopupMenuItem::new(if pinned { t("tab.unpin") } else { t("tab.pin") }).on_click(
               move |_, _, cx| {
                 let _ = workspace.update(cx, |this, cx| {
                   if let Some(pane) = this.panes.get_mut(&id) {

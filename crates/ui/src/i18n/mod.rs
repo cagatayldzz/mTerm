@@ -1,16 +1,6 @@
-//! Interface translations. English text is the key: `t("Copy")` returns the text of the current
-//! language, or the English original when a language has no entry for it.
-
-mod chinese;
-mod english;
-mod french;
-mod german;
-mod japanese;
-mod korean;
-mod portuguese;
-mod russian;
-mod spanish;
-mod turkish;
+//! Interface translations. Each language is one flat `key: text` file in `locales/` (`ja.json`);
+//! `t("menu.copy")` returns the text of the current language, or the English text when that
+//! language has no entry for the key.
 
 use mterm_storage::Language;
 use std::{
@@ -22,34 +12,39 @@ use std::{
   },
 };
 
-/// Every English text that can be translated, in the order it appears in the interface.
-pub use english::KEYS;
-
 static CURRENT: AtomicUsize = AtomicUsize::new(0);
 
-/// The entries of `language`: pairs of the English text and its translation.
-pub fn entries(language: Language) -> &'static [(&'static str, &'static str)] {
+type Table = HashMap<String, String>;
+
+/// The raw `locales/<code>.json` file of `language`.
+pub fn source(language: Language) -> &'static str {
   match language {
-    Language::English => &[],
-    Language::Chinese => chinese::STRINGS,
-    Language::Spanish => spanish::STRINGS,
-    Language::German => german::STRINGS,
-    Language::French => french::STRINGS,
-    Language::Japanese => japanese::STRINGS,
-    Language::Portuguese => portuguese::STRINGS,
-    Language::Russian => russian::STRINGS,
-    Language::Korean => korean::STRINGS,
-    Language::Turkish => turkish::STRINGS,
+    Language::English => include_str!("../../locales/en.json"),
+    Language::Chinese => include_str!("../../locales/zh.json"),
+    Language::Spanish => include_str!("../../locales/es.json"),
+    Language::German => include_str!("../../locales/de.json"),
+    Language::French => include_str!("../../locales/fr.json"),
+    Language::Japanese => include_str!("../../locales/ja.json"),
+    Language::Portuguese => include_str!("../../locales/pt.json"),
+    Language::Russian => include_str!("../../locales/ru.json"),
+    Language::Korean => include_str!("../../locales/ko.json"),
+    Language::Turkish => include_str!("../../locales/tr.json"),
   }
+}
+
+/// The keys and texts of `language`.
+pub fn entries(language: Language) -> Result<Table, serde_json::Error> {
+  serde_json::from_str(source(language))
 }
 
 fn index(language: Language) -> usize {
   Language::ALL.iter().position(|candidate| *candidate == language).unwrap_or(0)
 }
 
-fn table(language: Language) -> &'static HashMap<&'static str, &'static str> {
-  static TABLES: [OnceLock<HashMap<&'static str, &'static str>>; 10] = [const { OnceLock::new() }; 10];
-  TABLES[index(language)].get_or_init(|| entries(language).iter().copied().collect())
+fn table(language: Language) -> &'static Table {
+  static TABLES: [OnceLock<Table>; 10] = [const { OnceLock::new() }; 10];
+  // The files are checked by the tests, so a broken one only costs its language.
+  TABLES[index(language)].get_or_init(|| entries(language).unwrap_or_default())
 }
 
 /// The language the interface is shown in.
@@ -76,17 +71,14 @@ fn system_language() -> Language {
     .unwrap_or_default()
 }
 
-/// The text in the current language.
-pub fn t(english: &'static str) -> &'static str {
-  match language() {
-    Language::English => english,
-    other => table(other).get(english).copied().unwrap_or(english),
-  }
+/// The text for `key` in the current language, else in English, else the key itself.
+pub fn t(key: &'static str) -> &'static str {
+  table(language()).get(key).or_else(|| table(Language::English).get(key)).map(String::as_str).unwrap_or(key)
 }
 
-/// The text in the current language with each `{name}` replaced by its value.
-pub fn tf(english: &'static str, values: &[(&str, &str)]) -> String {
-  values.iter().fold(t(english).to_string(), |text, (name, value)| text.replace(&format!("{{{name}}}"), value))
+/// The text for `key` with each `{name}` replaced by its value.
+pub fn tf(key: &'static str, values: &[(&str, &str)]) -> String {
+  values.iter().fold(t(key).to_string(), |text, (name, value)| text.replace(&format!("{{{name}}}"), value))
 }
 
 #[cfg(test)]

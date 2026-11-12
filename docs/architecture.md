@@ -25,7 +25,7 @@ apps/mterm ─► app ─► ui ─► terminal
 | `crates/ui/src/tabs.rs` | top band, `TabBar`, tab context menu |
 | `crates/ui/src/terminal_view.rs` | pane rendering, mouse, selection, scrollbar, split dividers |
 | `crates/ui/src/components.rs` | shared pieces: `icon_button`, `close_button`, `truncated`, `pane_menu`, `log_failure` |
-| `crates/ui/src/i18n/` | `t`/`tf`, the current language, one table per language (`english.rs` lists the keys) |
+| `crates/ui/src/i18n/` | `t`/`tf`, the current language, `crates/ui/locales/<code>.json`, one flat `key: text` file per language (`en.json` is the reference) |
 | `crates/ui/src/{find,selection,layout,settings,theme,model,assets}.rs` | find bar, selection math, split tree (`Node`), Settings pages, themes, `AppModel`, icons |
 | `crates/terminal/src/session.rs` | `Session`: PTY, `alacritty_terminal`, shell directory lookup |
 | `crates/terminal/src/{snapshot,palette,keys,mouse,search}.rs` | styled screen snapshot, colors, key and mouse encoding, scrollback search |
@@ -98,9 +98,11 @@ Restore flow:
 
 English, 简体中文, Español, Deutsch, Français, 日本語, Português (Brasil), Русский, 한국어, Türkçe.
 
-- The English text is the key: `t("Copy")` returns the current language's text, or the English
-  original when a table has no entry. `tf("{index} of {count}", &[("index", "2"), ("count", "9")])`
-  fills placeholders. Both read a process-wide language set by `set_language`.
+- Each language is one flat file `crates/ui/locales/<code>.json` holding only that language's texts:
+  `"menu.copy": "コピー"`. Keys are stable identifiers (`menu.`, `tab.`, `find.`, `settings.`,
+  `updates.`, …), not English wording. `t("menu.copy")` returns the current language's text, else
+  the English text, else the key. `tf("find.position", &[("index", "2"), ("count", "9")])` fills
+  `{placeholders}`. Both read a process-wide language set by `set_language`.
 - `Preferences.language` is `None` (follow the first preferred language from
   `defaults read -g AppleLanguages` that is translated, else English) or a chosen `Language`.
   Changing it in Settings → General updates `set_language`; the menus and the Dock menu are rebuilt
@@ -108,7 +110,7 @@ English, 简体中文, Español, Deutsch, Français, 日本語, Português (Bras
 - Translated: menus, context menus, Settings, tooltips, dialogs, notifications. Not translated on
   purpose: the log, crash reports and the prefilled GitHub issue (maintainers read them), and error
   texts coming from the OS or the updater.
-- To add a text, use `t("…")` and add a row to every table. To add a language, add a `Language`
-  variant and a table. The tests in `crates/ui/tests/i18n.rs` fail when a table misses a key,
-  changes a `{placeholder}`, leaves most texts in English, or when `t("…")` is called with a text that
-  has no entry (or an entry is never used).
+- To add a text, use `t("group.name")` and add the key to every `locales/*.json`. To add a language,
+  add a `Language` variant and a `locales/<code>.json`. The tests in `crates/ui/tests/i18n.rs` fail
+  when a file is not a flat object, repeats or misses a key, changes a `{placeholder}`, leaves most
+  texts in English, or when `t("…")` uses a key no file has (or a key is never used).

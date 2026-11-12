@@ -96,14 +96,12 @@ pub(crate) fn announce_previous_crash(cx: &mut App) {
       }
       let _ = handle.update(cx, |_, window, cx| {
         window.push_notification(
-          Notification::warning(t("mTerm quit unexpectedly last time. Nothing was sent anywhere; you decide whether to report it."))
-            .title(t("mTerm crashed"))
-            .action(|_, _, cx| {
-              Button::new("report-crash").label(t("Report an Issue")).small().on_click(cx.listener(|notification, _, window, cx| {
-                window.dispatch_action(Box::new(ReportIssue), cx);
-                notification.dismiss(window, cx);
-              }))
-            }),
+          Notification::warning(t("crash.message")).title(t("crash.title")).action(|_, _, cx| {
+            Button::new("report-crash").label(t("about.report_issue")).small().on_click(cx.listener(|notification, _, window, cx| {
+              window.dispatch_action(Box::new(ReportIssue), cx);
+              notification.dismiss(window, cx);
+            }))
+          }),
           cx,
         );
       });

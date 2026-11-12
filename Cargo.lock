@@ -4118,6 +4118,7 @@ dependencies = [
  "mterm-storage",
  "mterm-terminal",
  "mterm-updater",
+ "serde_json",
  "unicode-width",
  "url",
 ]

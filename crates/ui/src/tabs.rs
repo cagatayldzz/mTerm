@@ -63,7 +63,7 @@ impl Workspace {
         .items_center()
         .gap_2()
         .child(middle)
-        .child(icon_button("open-settings", IconName::Settings, t("Settings (⌘,)"), |_, window, cx| {
+        .child(icon_button("open-settings", IconName::Settings, t("tooltip.settings"), |_, window, cx| {
           window.dispatch_action(Box::new(OpenSettings), cx)
         })),
     )
@@ -162,15 +162,15 @@ impl Workspace {
                   })
                 };
                 menu
-                  .item(item(t("New Tab to the Right"), |this, index, _, cx| this.new_tab_after(index, cx)))
+                  .item(item(t("tab.new_to_the_right"), |this, index, _, cx| this.new_tab_after(index, cx)))
                   .separator()
-                  .item(item(t("Rename"), |this, index, window, cx| this.rename_tab(index, window, cx)))
-                  .item(item(t("Reload"), |this, index, _, cx| this.reload_tab(index, cx)))
-                  .item(item(t("Duplicate"), |this, index, _, cx| this.duplicate_tab(index, cx)))
-                  .item(item(if pinned { t("Unpin") } else { t("Pin") }, |this, index, _, _| this.toggle_tab_pin(index)))
+                  .item(item(t("tab.rename"), |this, index, window, cx| this.rename_tab(index, window, cx)))
+                  .item(item(t("tab.reload"), |this, index, _, cx| this.reload_tab(index, cx)))
+                  .item(item(t("tab.duplicate"), |this, index, _, cx| this.duplicate_tab(index, cx)))
+                  .item(item(if pinned { t("tab.unpin") } else { t("tab.pin") }, |this, index, _, _| this.toggle_tab_pin(index)))
                   .separator()
-                  .item(item(t("Close"), |this, index, window, _| this.close_tab(index, window)))
-                  .item(item(t("Close Other Tabs"), |this, index, window, _| this.close_other_tabs(index, window)))
+                  .item(item(t("menu.close"), |this, index, window, _| this.close_tab(index, window)))
+                  .item(item(t("tab.close_others"), |this, index, window, _| this.close_other_tabs(index, window)))
               }),
           )
           .child(content)
@@ -194,7 +194,7 @@ impl Workspace {
           })
           .children(tabs),
       )
-      .child(icon_button("new-tab", IconName::Plus, t("New tab (⌘T)"), |_, window, cx| window.dispatch_action(Box::new(NewTab), cx)))
+      .child(icon_button("new-tab", IconName::Plus, t("tooltip.new_tab"), |_, window, cx| window.dispatch_action(Box::new(NewTab), cx)))
   }
 }
 

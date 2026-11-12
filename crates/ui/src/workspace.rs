@@ -216,7 +216,7 @@ impl Workspace {
       // No dialog padding: the title row and the settings run edge to edge, split by a hairline.
       dialog
         .p_0()
-        .title(div().px_4().py_3().font_weight(FontWeight::SEMIBOLD).child(t("Settings")))
+        .title(div().px_4().py_3().font_weight(FontWeight::SEMIBOLD).child(t("settings.title")))
         .width(SETTINGS_SIZE)
         .max_w(SETTINGS_SIZE)
         .child(div().h(SETTINGS_BODY_HEIGHT).border_t_1().border_color(border).child(render_settings(&model, page, epoch, cx)))
@@ -241,15 +241,15 @@ impl Workspace {
     self.model.update(cx, |model, _| model.announced = Some(release.version.clone()));
     let workspace = cx.weak_entity();
     window.push_notification(
-      component::notification::Notification::info(tf("mTerm {version} is available.", &[("version", &release.version)]))
-        .title(t("Update available"))
-        .action(move |_, _, cx| {
+      component::notification::Notification::info(tf("update.banner", &[("version", &release.version)])).title(t("update.available_title")).action(
+        move |_, _, cx| {
           let workspace = workspace.clone();
-          Button::new("open-update-settings").label(t("View update")).small().on_click(cx.listener(move |notification, _, window, cx| {
+          Button::new("open-update-settings").label(t("update.view")).small().on_click(cx.listener(move |notification, _, window, cx| {
             let _ = workspace.update(cx, |workspace, cx| workspace.open_settings(SettingsPage::Updates, window, cx));
             notification.dismiss(window, cx);
           }))
-        }),
+        },
+      ),
       cx,
     );
   }
@@ -338,7 +338,7 @@ impl Workspace {
         Some(id)
       }
       Err(error) => {
-        self.error = Some(tf("Could not start the shell: {error}", &[("error", &error.to_string())]));
+        self.error = Some(tf("error.shell_start", &[("error", &error.to_string())]));
         None
       }
     }
@@ -431,7 +431,7 @@ impl Workspace {
       }
       let input = input.clone();
       let workspace = workspace.clone();
-      dialog.confirm().title(t("Rename tab")).child(Input::new(&input)).ok_text(t("Save")).on_ok(move |_, _, cx| {
+      dialog.confirm().title(t("dialog.rename_title")).child(Input::new(&input)).ok_text(t("dialog.save")).on_ok(move |_, _, cx| {
         let name = input.read(cx).value().trim().to_owned();
         let _ = workspace.update(cx, |this, cx| {
           // The tab may have moved or closed while the dialog was open.
@@ -463,7 +463,7 @@ impl Workspace {
     let Some(old) = self.tabs.get(index) else { return };
     let mut saved = self.saved_tab(old);
     saved.pinned = false;
-    saved.title = saved.title.map(|title| tf("{title} copy", &[("title", &title)]));
+    saved.title = saved.title.map(|title| tf("tab.copy_title", &[("title", &title)]));
     if let Some(tab) = self.spawn_tab(&saved, cx) {
       self.tabs.insert(index + 1, tab);
       self.active = index + 1;
@@ -775,9 +775,9 @@ impl Workspace {
     }
     let answer = window.prompt(
       PromptLevel::Warning,
-      t("Clear command history?"),
-      Some(t("This removes the recorded commands.")),
-      &[t("Cancel"), t("Clear History")],
+      t("dialog.clear_history_title"),
+      Some(t("dialog.clear_history_message")),
+      &[t("dialog.cancel"), t("dialog.clear_history")],
       cx,
     );
     cx.spawn(async move |this, cx| {

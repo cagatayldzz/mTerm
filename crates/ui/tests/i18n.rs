@@ -52,19 +52,32 @@ fn used_keys() -> HashSet<String> {
   keys
 }
 
-#[test]
-fn english_keys_are_unique() {
-  let unique: HashSet<_> = KEYS.iter().collect();
-  assert_eq!(unique.len(), KEYS.len());
+fn load(language: Language) -> Table {
+  entries(language).unwrap_or_else(|error| panic!("{language:?}: locales file is not a flat key: text object: {error}"))
+}
+
+fn english() -> Table {
+  load(Language::English)
+}
+
+fn others() -> impl Iterator<Item = Language> {
+  Language::ALL.into_iter().filter(|language| *language != Language::English)
 }
 
 #[test]
-fn every_language_translates_exactly_the_english_keys() {
-  let english: HashSet<_> = KEYS.iter().copied().collect();
-  for language in Language::ALL.into_iter().filter(|language| *language != Language::English) {
-    let entries = entries(language);
-    let keys: HashSet<_> = entries.iter().map(|(key, _)| *key).collect();
-    assert_eq!(keys.len(), entries.len(), "{language:?} has a duplicate key");
+fn every_locale_file_has_unique_keys() {
+  for language in Language::ALL {
+    // One entry per line, so a repeated key shows up as fewer map entries than lines.
+    let lines = source(language).lines().filter(|line| line.starts_with("  \"")).count();
+    assert_eq!(load(language).len(), lines, "{language:?} has a duplicate key");
+  }
+}
+
+#[test]
+fn every_language_has_exactly_the_english_keys() {
+  let english: HashSet<_> = english().into_keys().collect();
+  for language in others() {
+    let keys: HashSet<_> = load(language).into_keys().collect();
     let missing: Vec<_> = english.difference(&keys).collect();
     let extra: Vec<_> = keys.difference(&english).collect();
     assert!(missing.is_empty() && extra.is_empty(), "{language:?}: missing {missing:?}, unknown {extra:?}");
@@ -73,33 +86,35 @@ fn every_language_translates_exactly_the_english_keys() {
 
 #[test]
 fn translations_keep_the_placeholders_and_are_not_empty() {
-  for language in Language::ALL.into_iter().filter(|language| *language != Language::English) {
-    for (key, translation) in entries(language) {
-      assert!(!translation.trim().is_empty(), "{language:?}: {key:?} is empty");
-      assert_eq!(placeholders(key), placeholders(translation), "{language:?}: {key:?} -> {translation:?}");
+  let english = english();
+  for language in others() {
+    for (key, text) in load(language) {
+      assert!(!text.trim().is_empty(), "{language:?}: {key:?} is empty");
+      assert_eq!(placeholders(&english[&key]), placeholders(&text), "{language:?}: {key:?} -> {text:?}");
     }
   }
 }
 
 #[test]
 fn translations_are_translations_not_copies_of_the_english() {
-  for language in Language::ALL.into_iter().filter(|language| *language != Language::English) {
-    let same = entries(language).iter().filter(|(key, translation)| key == translation).count();
+  let english = english();
+  for language in others() {
+    let same = load(language).iter().filter(|(key, text)| english[*key] == **text).count();
     // Names such as "Zoom" or "mTerm {version}" can stay the same in some languages.
-    assert!(same * 4 < KEYS.len(), "{language:?} leaves {same} of {} texts in English", KEYS.len());
+    assert!(same * 4 < english.len(), "{language:?} leaves {same} of {} texts in English", english.len());
   }
 }
 
 #[test]
-fn every_text_the_interface_translates_has_a_translation_and_none_is_unused() {
+fn every_key_the_interface_uses_exists_and_none_is_unused() {
   let used = used_keys();
-  let known: HashSet<String> = KEYS.iter().map(|key| key.to_string()).collect();
+  let known: HashSet<String> = english().into_keys().collect();
   let mut unknown: Vec<_> = used.difference(&known).collect();
   unknown.sort();
-  assert!(unknown.is_empty(), "t(…) is called with texts that have no translations: {unknown:?}");
+  assert!(unknown.is_empty(), "t(…) is called with keys that no locale file has: {unknown:?}");
   let mut unused: Vec<_> = known.difference(&used).collect();
   unused.sort();
-  assert!(unused.is_empty(), "translated texts the interface never uses: {unused:?}");
+  assert!(unused.is_empty(), "keys the interface never uses: {unused:?}");
 }
 
 /// One test owns the process-wide language, so parallel tests cannot see it change.
@@ -107,17 +122,17 @@ fn every_text_the_interface_translates_has_a_translation_and_none_is_unused() {
 fn the_current_language_decides_the_text() {
   set_language(Language::Turkish);
   assert_eq!(language(), Language::Turkish);
-  assert_eq!(t("Copy"), "Kopyala");
-  assert_eq!(tf("{index} of {count}", &[("index", "2"), ("count", "9")]), "2 / 9");
-  assert_eq!(tf("Could not start the shell: {error}", &[("error", "boom")]), "Kabuk başlatılamadı: boom");
+  assert_eq!(t("menu.copy"), "Kopyala");
+  assert_eq!(tf("find.position", &[("index", "2"), ("count", "9")]), "2 / 9");
+  assert_eq!(tf("error.shell_start", &[("error", "boom")]), "Kabuk başlatılamadı: boom");
 
   set_language(Language::Chinese);
-  assert_eq!(t("Copy"), "拷贝");
-  assert_eq!(t("This text has no translation"), "This text has no translation", "unknown text falls back to English");
+  assert_eq!(t("menu.copy"), "拷贝");
+  assert_eq!(t("no.such.key"), "no.such.key", "an unknown key shows the key");
 
   set_language(Language::English);
-  assert_eq!(t("Copy"), "Copy");
-  assert_eq!(tf("{title} copy", &[("title", "build")]), "build copy");
+  assert_eq!(t("menu.copy"), "Copy");
+  assert_eq!(tf("tab.copy_title", &[("title", "build")]), "build copy");
 }
 
 #[test]

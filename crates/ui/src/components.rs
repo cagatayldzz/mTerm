@@ -40,17 +40,17 @@ pub(crate) fn truncated() -> Div {
 pub(crate) fn pane_menu(menu: PopupMenu, context: &FocusHandle) -> PopupMenu {
   menu
     .action_context(context.clone())
-    .menu(t("New Window"), Box::new(NewWindow))
-    .menu(t("New Tab"), Box::new(NewTab))
+    .menu(t("menu.new_window"), Box::new(NewWindow))
+    .menu(t("menu.new_tab"), Box::new(NewTab))
     .separator()
-    .menu(t("Split Pane Vertically"), Box::new(SplitVertically))
-    .menu(t("Split Pane Horizontally"), Box::new(SplitHorizontally))
+    .menu(t("menu.split_vertically"), Box::new(SplitVertically))
+    .menu(t("menu.split_horizontally"), Box::new(SplitHorizontally))
     .separator()
-    .menu(t("Copy"), Box::new(Copy))
-    .menu(t("Paste"), Box::new(Paste))
-    .menu(t("Clear Buffer"), Box::new(ClearScreen))
+    .menu(t("menu.copy"), Box::new(Copy))
+    .menu(t("menu.paste"), Box::new(Paste))
+    .menu(t("menu.clear_buffer"), Box::new(ClearScreen))
     .separator()
-    .menu(t("Close"), Box::new(ClosePane))
+    .menu(t("menu.close"), Box::new(ClosePane))
 }
 
 /// Reports a failed save on stderr; the app keeps running without what could not be saved.
