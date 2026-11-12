@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "bash scripts/app.sh --dev",
     "build": "bash scripts/app.sh release --build",
-    "update": "cargo update",
+    "update": "cargo upgrade --incompatible && cargo update && bun update",
     "release": "bun scripts/release.ts",
     "typecheck": "tsc --noEmit",
     "check": "bash scripts/app.sh --check",

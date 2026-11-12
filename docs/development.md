@@ -14,7 +14,7 @@ Requirements: Command Line Tools (not Xcode), Rust 1.92+ (stable), Bun. After cl
 | `bun run build` | release build → `dist/mTerm.app` |
 | `bun run check` | TypeScript, `cargo fmt`, clippy, tests (run before finishing a change) |
 | `bun run test` | `cargo test --locked --workspace` |
-| `bun run update` | `cargo update` |
+| `bun run update` | `cargo upgrade --incompatible` (needs `cargo install cargo-edit`), `cargo update`, `bun update` |
 | `bun run commit` | `git add -A && oco --yes` |
 
 ## Scripts
