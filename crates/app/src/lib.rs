@@ -2,12 +2,14 @@
 //!
 //! `apps/mterm` only calls [`run`].
 
+mod diagnostics;
 mod keys;
 mod menus;
 mod persistence;
 mod windows;
 
 use crate::{
+  diagnostics::{announce_previous_crash, install_panic_hook, log_startup, register_actions},
   keys::bind_keys,
   persistence::save_state,
   windows::{open_folders, open_window, refresh_window_menu, save_window_size, select_window, OpenWindows},
@@ -22,6 +24,8 @@ const OPEN_URLS_GRACE: Duration = Duration::from_millis(250);
 
 /// Starts the application and runs it until it quits.
 pub fn run() {
+  install_panic_hook();
+  log_startup();
   // Folders handed over by `open -a mTerm <folder>`, Finder, or another app's "open in terminal".
   let (url_sender, mut url_receiver) = futures::channel::mpsc::unbounded::<Vec<String>>();
   let app = gpui_kit::application().with_assets(Assets);
@@ -34,6 +38,7 @@ pub fn run() {
     cx.activate(true);
     cx.set_global(OpenWindows::default());
     bind_keys(cx);
+    register_actions(cx);
 
     cx.on_action(|_: &Quit, cx| cx.quit());
     cx.on_action(|_: &Hide, cx| cx.hide());
@@ -79,6 +84,8 @@ pub fn run() {
     for window in restored.windows {
       open_window(None, Some(window), cx);
     }
+
+    announce_previous_crash(cx);
 
     // A folder on the command line opens a window of its own; otherwise give the system a moment
     // to hand one over before opening a plain window.

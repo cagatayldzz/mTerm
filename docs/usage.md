@@ -65,3 +65,11 @@ Settings → Updates checks the latest GitHub release on launch unless automatic
 checks are turned off. Choose **Download & Install** to download an update; mTerm
 verifies its checksum and code signature before **Restart to Update** installs it.
 Updates are available in release builds, not development builds.
+
+## Reporting a problem
+
+Choose **Help → Report an Issue…** (or Settings → About → Report an Issue). A GitHub issue opens
+with your mTerm and macOS versions, the last crash and the end of the log filled in; nothing is
+sent until you submit it. **Help → Show Logs in Finder** opens `~/Library/Logs/mTerm`, where you
+can attach the full `mterm.log`. If mTerm crashed hard, also attach the newest `mTerm-*.ips` from
+`~/Library/Logs/DiagnosticReports`. After a crash, mTerm offers to report it on the next launch.

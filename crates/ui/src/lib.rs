@@ -49,7 +49,9 @@ actions!(
     NextTab,
     PreviousTab,
     OpenSettings,
-    CheckForUpdates
+    CheckForUpdates,
+    ReportIssue,
+    ShowLogs
   ]
 );
 

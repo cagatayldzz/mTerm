@@ -56,6 +56,8 @@ pub(crate) fn pane_menu(menu: PopupMenu, context: &FocusHandle) -> PopupMenu {
 /// Reports a failed save on stderr; the app keeps running without what could not be saved.
 pub fn log_failure(action: &str, result: io::Result<()>) {
   if let Err(error) = result {
-    eprintln!("Could not {action}: {error}");
+    let message = format!("Could not {action}: {error}");
+    eprintln!("{message}");
+    let _ = mterm_storage::Diagnostics::default().log(&message);
   }
 }

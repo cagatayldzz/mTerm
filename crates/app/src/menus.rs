@@ -3,8 +3,8 @@
 use gpui_kit::*;
 use mterm_ui::{
   CheckForUpdates, ClearHistory, ClearScreen, ClosePane, Copy, DecreaseFontSize, Find, FindNext, FindPrevious, Hide, HideOthers, IncreaseFontSize,
-  Minimize, NewTab, NewWindow, NextPane, NextTab, OpenSettings, Paste, PreviousPane, PreviousTab, Quit, ResetFontSize, SelectAll, SelectWindow,
-  ShowAll, SplitHorizontally, SplitVertically, Zoom,
+  Minimize, NewTab, NewWindow, NextPane, NextTab, OpenSettings, Paste, PreviousPane, PreviousTab, Quit, ReportIssue, ResetFontSize, SelectAll,
+  SelectWindow, ShowAll, ShowLogs, SplitHorizontally, SplitVertically, Zoom,
 };
 
 /// `windows` holds the title and front state of each open window, in opening order.
@@ -69,6 +69,7 @@ pub(crate) fn set_menus(cx: &mut App, windows: &[(String, bool)]) {
       MenuItem::action("Show Previous Tab", PreviousTab),
     ]),
     Menu::new("Window").items(window_items),
+    Menu::new("Help").items([MenuItem::action("Report an Issue…", ReportIssue), MenuItem::action("Show Logs in Finder", ShowLogs)]),
   ]);
 }
 

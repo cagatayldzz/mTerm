@@ -1,6 +1,7 @@
 //! Settings, shown inside the window: appearance, updates and about.
 
 use crate::model::{AppModel, AppUpdate, APP_UPDATES_ENABLED, APP_VERSION};
+use crate::{ReportIssue, ShowLogs};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
   component::{
@@ -138,18 +139,38 @@ pub(crate) fn render_settings(model: &Entity<AppModel>, page: SettingsPage, epoc
     );
 
   let about_foreground = theme.foreground;
-  let about = SettingPage::new("About").icon(IconName::Info).description("About this mTerm installation.").group(
-    SettingGroup::new().title("mTerm").item(SettingItem::render(move |_, _, _| {
+  let about = SettingPage::new("About")
+    .icon(IconName::Info)
+    .description("About this mTerm installation.")
+    .group(SettingGroup::new().title("mTerm").item(SettingItem::render(move |_, _, _| {
       div().w_full().text_sm().font_weight(FontWeight::NORMAL).text_color(about_foreground).child(
         DescriptionList::new()
           .columns(1)
           .bordered(false)
           .item("Version", APP_VERSION, 1)
           .item("Repository", mterm_updater::repository_slug().unwrap_or("—"), 1)
-          .item("Data folder", mterm_storage::data_dir().display().to_string(), 1),
+          .item("Data folder", mterm_storage::data_dir().display().to_string(), 1)
+          .item("Log folder", mterm_storage::Diagnostics::default().dir().display().to_string(), 1),
       )
-    })),
-  );
+    })))
+    .group(
+      SettingGroup::new()
+        .title("Support")
+        .description("Opens a GitHub issue with the versions and the end of the log filled in. Nothing is sent until you submit it.")
+        .item(SettingItem::render(|_, _, _| {
+          h_flex()
+            .gap_3()
+            .child(
+              Button::new("report-issue")
+                .label("Report an Issue")
+                .small()
+                .on_click(|_, window, cx| window.dispatch_action(Box::new(ReportIssue), cx)),
+            )
+            .child(
+              Button::new("show-logs").label("Show Logs in Finder").small().on_click(|_, window, cx| window.dispatch_action(Box::new(ShowLogs), cx)),
+            )
+        })),
+    );
 
   // The menu and its entries show the arrow; controls with their own cursor (the search field) keep it.
   div().id("settings").size_full().cursor_default().bg(theme.background).child(

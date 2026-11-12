@@ -18,6 +18,7 @@ apps/mterm ─► app ─► ui ─► terminal
 | `apps/mterm/src/main.rs` | executable entry point only; calls `mterm_app::run` |
 | `crates/app/src/lib.rs` | startup: actions, quit, opening folders from the system, restoring saved windows |
 | `crates/app/src/windows.rs` | window registry (`OpenWindows`), opening and placing windows, Window menu, window size |
+| `crates/app/src/diagnostics.rs` | panic hook (crash reports), `Report an Issue`, `Show Logs`, one-time crash notice on the next launch |
 | `crates/app/src/persistence.rs` | `save_state`: writes `SavedState` when the open windows change |
 | `crates/app/src/{keys,menus}.rs` | key bindings; menu bar and Dock menu |
 | `crates/ui/src/workspace.rs` | `Workspace` (one per window): tabs, panes, input, history, Settings dialog |
@@ -27,7 +28,7 @@ apps/mterm ─► app ─► ui ─► terminal
 | `crates/ui/src/{find,selection,layout,settings,theme,model,assets}.rs` | find bar, selection math, split tree (`Node`), Settings pages, themes, `AppModel`, icons |
 | `crates/terminal/src/session.rs` | `Session`: PTY, `alacritty_terminal`, shell directory lookup |
 | `crates/terminal/src/{snapshot,palette,keys,mouse,search}.rs` | styled screen snapshot, colors, key and mouse encoding, scrollback search |
-| `crates/storage/src/` | `state.rs` (`SavedState`), `history.rs`, `preferences.rs`, `window_size.rs`, `paths.rs`, `dropped_files.rs` |
+| `crates/storage/src/` | `state.rs` (`SavedState`), `history.rs`, `preferences.rs`, `window_size.rs`, `paths.rs`, `dropped_files.rs`, `diagnostics.rs` (log, crash reports, issue URL) |
 | `crates/updater/src/`, `crates/version/src/` | release lookup, download, verification, bundle swap; version comparison |
 
 ## Terminal data flow
@@ -76,3 +77,18 @@ Restore flow:
 
 - Language, formatting, tests, GPUI Kit conventions and checks: `AGENTS.md`.
 - A change to windows, state files or crate boundaries must update this file.
+
+## Diagnostics
+
+`~/Library/Logs/mTerm` holds `mterm.log` (moved to `mterm.log.1` past 512 KiB) and `crash-*.txt`
+(the newest 10), all readable only by the user. Nothing is sent anywhere.
+
+- `log_failure` and the start of each run write to the log.
+- A panic hook (`install_panic_hook`, first thing in `run`) writes the message, location and a
+  backtrace, with the home folder replaced by `~`. The release profile uses
+  `strip = "debuginfo"` so the backtrace keeps function names.
+- The next launch shows one notice per crash with a **Report an Issue** button.
+- `ReportIssue` (Help menu, Settings → About) opens a GitHub issue prefilled with versions, the
+  last crash and the log tail. `ShowLogs` opens the folder in Finder.
+- Crashes outside Rust (signals) are written by macOS to `~/Library/Logs/DiagnosticReports`; the
+  issue text asks the user to attach that file.

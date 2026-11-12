@@ -33,7 +33,7 @@ todo = "deny"
 unimplemented = "deny"
 
 [profile.release]
-strip = true
+strip = "debuginfo"
 
 # Dependencies (GPUI above all) build without debug info: smaller target directory, faster linking.
 [profile.dev.package."*"]
