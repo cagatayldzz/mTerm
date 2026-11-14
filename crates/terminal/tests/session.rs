@@ -116,6 +116,19 @@ fn links_are_resolved_from_terminal_cells() {
 }
 
 #[test]
+fn wrapped_file_paths_resolve_from_each_row() {
+  let (session, receiver) = run("printf 'Open /private/tmp/claude-501/example/scratchpad/icon-a.png now'");
+  wait_for_exit(&receiver);
+  wait_for_screen(&session, |snapshot| snapshot.text().contains("icon-a.png"));
+  let snapshot = session.snapshot(&Palette::light());
+  let expected = Some("/private/tmp/claude-501/example/scratchpad/icon-a.png");
+  assert_eq!(snapshot.link_at(0, 6).as_deref(), expected);
+  assert_eq!(snapshot.link_at(1, 2).as_deref(), expected);
+  assert_eq!(snapshot.link_range_at(0, 6).map(|(_, start, end)| (start, end)), Some((5, 40)));
+  assert_eq!(snapshot.link_at(1, 19), None);
+}
+
+#[test]
 fn input_is_echoed_by_the_program() {
   let (session, receiver) = run("read line; printf \"got:%s\" \"$line\"");
   session.write(b"abc\r".to_vec());

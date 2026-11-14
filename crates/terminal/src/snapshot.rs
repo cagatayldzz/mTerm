@@ -50,7 +50,7 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-  /// Returns the explicit or plain web link under a viewport cell.
+  /// Returns the explicit or plain link under a viewport cell.
   pub fn link_at(&self, line: usize, column: usize) -> Option<String> {
     self.link_range_at(line, column).map(|(target, _, _)| target)
   }
@@ -68,7 +68,38 @@ impl Snapshot {
       }
       return Some((link.clone(), start, end));
     }
-    let text = self.line_text(line);
+    self.lines.get(line)?;
+    let mut first = line;
+    while first > 0 && self.wrapped.get(first - 1) == Some(&true) {
+      first -= 1;
+    }
+    let mut last = line;
+    while self.wrapped.get(last) == Some(&true) && last + 1 < self.lines.len() {
+      last += 1;
+    }
+    let mut text = String::new();
+    let mut line_start = 0;
+    let mut line_end = 0;
+    let mut width = 0;
+    for index in first..=last {
+      if index == line {
+        line_start = width;
+      }
+      let row = if self.wrapped.get(index) == Some(&true) {
+        self.lines[index].iter().map(|span| span.text.as_str()).collect()
+      } else {
+        self.line_text(index)
+      };
+      width += row.chars().map(|c| c.width().unwrap_or(0)).sum::<usize>();
+      text.push_str(&row);
+      if index == line {
+        line_end = width;
+      }
+    }
+    let column = line_start + column;
+    if column >= line_end {
+      return None;
+    }
     let mut cell = 0;
     for word in text.split_whitespace() {
       let start_byte = text[cell..].find(word)? + cell;
@@ -87,7 +118,7 @@ impl Snapshot {
         let link_start = start_column + word[..prefix].chars().map(|c| c.width().unwrap_or(0)).sum::<usize>();
         let link_end = link_start + target.chars().map(|c| c.width().unwrap_or(0)).sum::<usize>();
         if column >= link_start && column < link_end {
-          return Some((target.to_owned(), link_start, link_end));
+          return Some((target.to_owned(), link_start.max(line_start) - line_start, link_end.min(line_end) - line_start));
         }
       }
     }

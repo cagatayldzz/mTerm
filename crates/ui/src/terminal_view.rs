@@ -290,8 +290,8 @@ impl Workspace {
     let hovered = if window.modifiers().platform {
       content_bounds.get().and_then(|bounds| cell_at(bounds, window.mouse_position(), cell_width, line_height)).and_then(|(line, column)| {
         let (target, start, end) = snapshot.link_range_at(line, column)?;
-        let url = openable_url(&target, pane.directory.as_deref())?;
-        Some((line, start, end, url))
+        openable_url(&target, pane.directory.as_deref())?;
+        Some((line, start, end))
       })
     } else {
       None
@@ -550,21 +550,16 @@ impl Workspace {
         .bottom_0(),
       )
       .when(!reporting, |this| this.cursor_text())
-      .when_some(hovered, |this, (line, start, end, url)| {
-        this
-          .cursor_pointer()
-          .child(
-            div()
-              .absolute()
-              .left(PADDING + metrics.cell_width * start as f32)
-              .top(header_height + PADDING + line_height * (line + 1) as f32 - px(2.))
-              .w(metrics.cell_width * (end - start) as f32)
-              .h(px(1.))
-              .bg(link_color),
-          )
-          .child(
-            div().absolute().left_1().bottom_1().px_2().py_1().bg(cx.theme().popover).text_color(cx.theme().popover_foreground).text_xs().child(url),
-          )
+      .when_some(hovered, |this, (line, start, end)| {
+        this.cursor_pointer().child(
+          div()
+            .absolute()
+            .left(PADDING + metrics.cell_width * start as f32)
+            .top(header_height + PADDING + line_height * (line + 1) as f32 - px(2.))
+            .w(metrics.cell_width * (end - start) as f32)
+            .h(px(1.))
+            .bg(link_color),
+        )
       })
       .child(
         // Out of the flow, so a pane's size comes only from the space layout gives it.
