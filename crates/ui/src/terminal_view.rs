@@ -10,6 +10,8 @@ use gpui_kit::{
     button::{Button, ButtonVariants},
     h_flex,
     menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenuItem},
+    resizable::{h_resizable, resizable_panel, v_resizable},
+    scroll::{ScrollableElement as _, ScrollbarHandle},
     ActiveTheme, IconName, Sizable, WindowExt as _,
   },
   *,
@@ -27,43 +29,37 @@ use unicode_width::UnicodeWidthChar as _;
 
 const FONT_FAMILY: &str = "Menlo";
 const PADDING: Pixels = px(12.);
-const DIVIDER_WIDTH: Pixels = px(1.);
 const PANE_HEADER_HEIGHT: Pixels = px(28.);
-const SCROLLBAR_INSET: Pixels = px(4.);
 /// How dark the veil over an unfocused split pane is.
 const PANE_VEIL: f32 = 0.18;
 
+/// Lets the Kit scrollbar drive a terminal's scrollback: the offset is how far the view sits above the live screen.
 #[derive(Clone)]
-struct DividerDrag {
-  path: Vec<bool>,
-  split: Split,
-  area: Bounds<Pixels>,
-  sidebar: Pixels,
-}
-
-impl Render for DividerDrag {
-  fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-    Empty
-  }
-}
-
-struct Divider {
-  bounds: Bounds<Pixels>,
-  drag: DividerDrag,
-}
-
-#[derive(Clone)]
-struct ScrollbarDrag {
-  pane: PaneId,
-  start_y: Rc<Cell<Pixels>>,
+struct TerminalScroll {
+  session: Rc<Session>,
+  bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
+  line_height: Pixels,
+  history: usize,
   scrolled: usize,
-  history_size: usize,
-  travel: Pixels,
 }
 
-impl Render for ScrollbarDrag {
-  fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-    Empty
+impl ScrollbarHandle for TerminalScroll {
+  fn viewport_bounds(&self) -> Bounds<Pixels> {
+    self.bounds.get().unwrap_or_default()
+  }
+
+  fn offset(&self) -> Point<Pixels> {
+    point(px(0.), -(self.line_height * self.history.saturating_sub(self.scrolled) as f32))
+  }
+
+  fn set_offset(&self, offset: Point<Pixels>) {
+    let lines_above = (f32::from(-offset.y) / f32::from(self.line_height)).round().max(0.) as usize;
+    self.session.scroll_to(self.history.saturating_sub(lines_above));
+  }
+
+  fn content_size(&self) -> Size<Pixels> {
+    let viewport = self.viewport_bounds().size;
+    size(viewport.width, viewport.height + self.line_height * self.history as f32)
   }
 }
 
@@ -179,80 +175,71 @@ impl Workspace {
     }
     let metrics = Metrics { font, font_size, line_height, cell_width, fixed_cells, palette };
     let split = root.leaves().len() > 1;
-    // Panes are placed at explicit rectangles: flex percentages do not resolve reliably for nested splits.
-    let sidebar = px(0.);
     let viewport = window.viewport_size();
-    let area = Bounds::new(point(px(0.), px(0.)), size(viewport.width - sidebar, viewport.height - TOOLBAR_HEIGHT));
-    let mut panes = Vec::new();
-    let mut dividers = Vec::new();
-    place(&root, area, &mut panes, &mut dividers, &mut Vec::new(), sidebar);
-    let border = cx.theme().sidebar_border;
-    let panes: Vec<_> = panes.into_iter().map(|(id, bounds)| self.render_pane(id, bounds, id == focused, split, &metrics, window, cx)).collect();
-    div()
-      .flex_1()
-      .min_h_0()
-      .relative()
-      .children(panes)
-      .on_drag_move(cx.listener(|this, event: &DragMoveEvent<DividerDrag>, _, cx| {
-        let drag = event.drag(cx);
-        let (position, origin, extent) = match drag.split {
-          Split::Vertically => (event.event.position.x - drag.sidebar, drag.area.origin.x, drag.area.size.width),
-          Split::Horizontally => (event.event.position.y - TOOLBAR_HEIGHT, drag.area.origin.y, drag.area.size.height),
-        };
-        let fraction = f32::from(position - origin) / f32::from(extent - DIVIDER_WIDTH);
-        let ratio = (fraction.clamp(0.1, 0.9) * 10000.) as u16;
-        if let Some(tab) = this.tabs.get_mut(this.active) {
-          if tab.root.set_ratio(&drag.path, ratio) {
-            cx.notify();
-          }
-        }
-      }))
-      .on_drag_move(cx.listener(|this, event: &DragMoveEvent<ScrollbarDrag>, _, cx| {
-        let drag = event.drag(cx);
-        let delta = f32::from(event.event.position.y - drag.start_y.get()) / f32::from(drag.travel);
-        let target = (drag.scrolled as f32 - delta * drag.history_size as f32).round().clamp(0., drag.history_size as f32) as usize;
-        if let Some(pane) = this.panes.get_mut(&drag.pane) {
-          if pane.session.scroll_to(target) {
-            cx.notify();
-          }
-        }
-      }))
-      .children(dividers.into_iter().enumerate().map(move |(index, divider)| {
-        let bounds = divider.bounds;
-        let vertical = divider.drag.split == Split::Vertically;
-        div()
-          .id(("divider", index))
-          .absolute()
-          .left(bounds.origin.x - if vertical { px(4.) } else { px(0.) })
-          .top(bounds.origin.y - if vertical { px(0.) } else { px(4.) })
-          .w(bounds.size.width + if vertical { px(8.) } else { px(0.) })
-          .h(bounds.size.height + if vertical { px(0.) } else { px(8.) })
-          .when(vertical, |this| this.cursor_col_resize())
-          .when(!vertical, |this| this.cursor_row_resize())
-          .on_drag(divider.drag, |drag, _, _, cx| cx.new(|_| drag.clone()))
-          .child(
-            div()
-              .absolute()
-              .left(if vertical { px(4.) } else { px(0.) })
-              .top(if vertical { px(0.) } else { px(4.) })
-              .w(bounds.size.width)
-              .h(bounds.size.height)
-              .bg(border),
-          )
-      }))
-      .into_any_element()
+    let area = size(viewport.width, viewport.height - TOOLBAR_HEIGHT);
+    let content = self.render_node(&root, area, &mut Vec::new(), focused, split, &metrics, window, cx);
+    div().flex_1().min_h_0().relative().child(content).into_any_element()
   }
 
-  fn render_pane(
+  /// One node of the layout: a pane, or a Kit resizable group holding its two halves.
+  /// `area` only seeds the panel sizes from the stored ratio; the group owns them afterwards.
+  fn render_node(
     &self,
-    id: PaneId,
-    bounds: Bounds<Pixels>,
-    focused: bool,
+    node: &Node,
+    area: Size<Pixels>,
+    path: &mut Vec<bool>,
+    focused: PaneId,
     split: bool,
     metrics: &Metrics,
     window: &Window,
     cx: &mut Context<Self>,
   ) -> AnyElement {
+    let Node::Split { split: direction, ratio, first, second } = node else {
+      let Node::Leaf(id) = node else { return div().into_any_element() };
+      return self.render_pane(*id, *id == focused, split, metrics, window, cx);
+    };
+    let side_by_side = *direction == Split::Vertically;
+    let extent = if side_by_side { area.width } else { area.height };
+    let first_extent = (extent * (f32::from(*ratio) / 10000.)).floor();
+    let (first_area, second_area) = if side_by_side {
+      (size(first_extent, area.height), size(extent - first_extent, area.height))
+    } else {
+      (size(area.width, first_extent), size(area.width, extent - first_extent))
+    };
+    // A split is identified by the panes at the head of its two halves.
+    let id = SharedString::from(format!("split-{}-{}", first.leaves()[0], second.leaves()[0]));
+    path.push(false);
+    let first_element = self.render_node(first, first_area, path, focused, split, metrics, window, cx);
+    path.pop();
+    path.push(true);
+    let second_element = self.render_node(second, second_area, path, focused, split, metrics, window, cx);
+    path.pop();
+    let workspace = cx.weak_entity();
+    let split_path = path.clone();
+    let group = if side_by_side { h_resizable(id) } else { v_resizable(id) };
+    group
+      .on_resize(move |state, _, cx| {
+        let sizes = state.read(cx).sizes().clone();
+        let [first, second, ..] = sizes[..] else { return };
+        let total = f32::from(first) + f32::from(second);
+        if total <= 0. {
+          return;
+        }
+        let ratio = (f32::from(first) / total * 10000.) as u16;
+        let _ = workspace.update(cx, |this, cx| {
+          if let Some(tab) = this.tabs.get_mut(this.active) {
+            if tab.root.set_ratio(&split_path, ratio) {
+              cx.notify();
+            }
+          }
+        });
+      })
+      .child(resizable_panel().size(first_extent).child(first_element))
+      .child(resizable_panel().size(extent - first_extent).child(second_element))
+      .into_any_element()
+  }
+
+  fn render_pane(&self, id: PaneId, focused: bool, split: bool, metrics: &Metrics, window: &Window, cx: &mut Context<Self>) -> AnyElement {
     let Some(pane) = self.panes.get(&id) else { return div().into_any_element() };
     pane.session.set_palette(metrics.palette.clone());
     let snapshot = pane.session.snapshot(&metrics.palette);
@@ -275,12 +262,14 @@ impl Workspace {
     let selection = pane.selection;
     let columns = snapshot.columns;
     let line_count = snapshot.lines.len();
-    let track_height = (bounds.size.height - header_height - SCROLLBAR_INSET * 2.).max(px(0.));
-    let thumb_height = (track_height * (line_count as f32 / (line_count + snapshot.history_size).max(1) as f32)).max(px(28.)).min(track_height);
-    let travel = track_height - thumb_height;
-    let thumb_top = if snapshot.history_size > 0 { travel * (1. - snapshot.scrolled as f32 / snapshot.history_size as f32) } else { px(0.) };
-    let has_scrollbar = snapshot.history_size > 0 && travel > px(0.);
-    let scrollbar_start = Rc::new(Cell::new(px(0.)));
+    let has_scrollbar = snapshot.history_size > 0;
+    let scroll_handle = TerminalScroll {
+      session: pane.session.clone(),
+      bounds: content_bounds.clone(),
+      line_height,
+      history: snapshot.history_size,
+      scrolled: snapshot.scrolled,
+    };
     let (link_color, hit_color, selection_color) = {
       let theme = cx.theme();
       (theme.link, theme.warning, theme.selection)
@@ -299,11 +288,8 @@ impl Workspace {
 
     div()
       .id(("pane", id))
-      .absolute()
-      .left(bounds.origin.x)
-      .top(bounds.origin.y)
-      .w(bounds.size.width)
-      .h(bounds.size.height)
+      .relative()
+      .size_full()
       .overflow_hidden()
       .bg(background)
       .on_mouse_move(cx.listener(move |this, event: &MouseMoveEvent, window, cx| {
@@ -359,17 +345,6 @@ impl Workspace {
           this.focus_pane(id, window, cx);
           if let Some(pane) = this.panes.get_mut(&id) {
             pane.selection_dragging = false;
-          }
-          if has_scrollbar {
-            if let Some(content) = click_bounds.get() {
-              let top = content.origin.y + SCROLLBAR_INSET + thumb_top;
-              if event.position.x >= content.origin.x + content.size.width - px(14.)
-                && event.position.y >= top
-                && event.position.y <= top + thumb_height
-              {
-                return;
-              }
-            }
           }
           let modes = this.panes.get(&id).map(|pane| pane.session.modes()).unwrap_or_default();
           if modes.mouse_reporting() && !event.modifiers.shift && !event.modifiers.platform {
@@ -624,32 +599,7 @@ impl Workspace {
       // Panes other than the focused one sit under a lighter veil of the same kind.
       .when(split && !focused, |this| this.child(div().absolute().top(header_height).left_0().right_0().bottom_0().bg(black().opacity(PANE_VEIL))))
       .when(has_scrollbar, |this| {
-        let drag = ScrollbarDrag { pane: id, start_y: scrollbar_start, scrolled: snapshot.scrolled, history_size: snapshot.history_size, travel };
-        this.child(
-          div()
-            .id(("scrollbar", id))
-            .absolute()
-            .right_0()
-            .top(header_height + SCROLLBAR_INSET + thumb_top)
-            .w(px(14.))
-            .h(thumb_height)
-            .group("terminal-scrollbar")
-            .cursor_pointer()
-            .on_drag(drag, |drag, _, window, cx| {
-              drag.start_y.set(window.mouse_position().y);
-              cx.new(|_| drag.clone())
-            })
-            .child(
-              div()
-                .absolute()
-                .right(SCROLLBAR_INSET)
-                .w(px(6.))
-                .h_full()
-                .rounded_full()
-                .bg(color(metrics.palette.foreground).opacity(0.35))
-                .group_hover("terminal-scrollbar", |style| style.bg(color(metrics.palette.foreground).opacity(0.65))),
-            ),
-        )
+        this.child(div().id(("scrollbar", id)).absolute().top(header_height).left_0().right_0().bottom_0().vertical_scrollbar(&scroll_handle))
       })
       .when(split, |this| this.child(self.render_pane_header(id, title, focused, cx)))
       .context_menu(move |menu, _, _| pane_menu(menu, &action_context))
@@ -685,7 +635,7 @@ impl Workspace {
         ))
       })
       .when(pinned, |this| this.child(gpui_kit::component::Icon::new(gpui_kit_assets::IconName::Pin).xsmall()))
-      .child(truncated().text_xs().child(title))
+      .child(truncated(title).text_xs())
       .child(
         Button::new(("pane-menu", id))
           .icon(IconName::Ellipsis)
@@ -710,46 +660,6 @@ impl Workspace {
             }
           }),
       )
-  }
-}
-
-/// Divides `area` among the panes of `node`, leaving room for the divider.
-fn place(
-  node: &Node,
-  area: Bounds<Pixels>,
-  panes: &mut Vec<(PaneId, Bounds<Pixels>)>,
-  dividers: &mut Vec<Divider>,
-  path: &mut Vec<bool>,
-  sidebar: Pixels,
-) {
-  match node {
-    Node::Leaf(id) => panes.push((*id, area)),
-    Node::Split { split, ratio, first, second } => {
-      let line = DIVIDER_WIDTH;
-      let (origin, extent) = (area.origin, area.size);
-      let (first_area, divider, second_area) = if *split == Split::Vertically {
-        let width = ((extent.width - line) * (f32::from(*ratio) / 10000.)).floor();
-        (
-          Bounds::new(origin, size(width, extent.height)),
-          Bounds::new(point(origin.x + width, origin.y), size(line, extent.height)),
-          Bounds::new(point(origin.x + width + line, origin.y), size(extent.width - width - line, extent.height)),
-        )
-      } else {
-        let height = ((extent.height - line) * (f32::from(*ratio) / 10000.)).floor();
-        (
-          Bounds::new(origin, size(extent.width, height)),
-          Bounds::new(point(origin.x, origin.y + height), size(extent.width, line)),
-          Bounds::new(point(origin.x, origin.y + height + line), size(extent.width, extent.height - height - line)),
-        )
-      };
-      dividers.push(Divider { bounds: divider, drag: DividerDrag { path: path.clone(), split: *split, area, sidebar } });
-      path.push(false);
-      place(first, first_area, panes, dividers, path, sidebar);
-      path.pop();
-      path.push(true);
-      place(second, second_area, panes, dividers, path, sidebar);
-      path.pop();
-    }
   }
 }
 

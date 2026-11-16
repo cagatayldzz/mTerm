@@ -12,6 +12,7 @@ use gpui_kit::{
     button::{Button, ButtonVariants},
     description_list::DescriptionList,
     h_flex,
+    label::Label,
     setting::{SelectIndex, SettingField, SettingGroup, SettingItem, SettingPage, Settings},
     spinner::Spinner,
     tag::Tag,
@@ -216,8 +217,8 @@ fn theme_options() -> Vec<(SharedString, SharedString)> {
     .to_vec()
 }
 
-fn caption(text: impl Into<SharedString>, cx: &App) -> Div {
-  div().text_sm().text_color(cx.theme().muted_foreground).child(text.into())
+fn caption(text: impl Into<SharedString>, cx: &App) -> Label {
+  Label::new(text).text_sm().text_color(cx.theme().muted_foreground)
 }
 
 /// The mTerm update status and its actions.

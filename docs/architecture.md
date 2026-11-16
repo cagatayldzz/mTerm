@@ -23,7 +23,7 @@ apps/mterm ─► app ─► ui ─► terminal
 | `crates/app/src/{keys,menus}.rs` | key bindings; menu bar and Dock menu |
 | `crates/ui/src/workspace.rs` | `Workspace` (one per window): tabs, panes, input, history, Settings dialog |
 | `crates/ui/src/tabs.rs` | top band, `TabBar`, tab context menu |
-| `crates/ui/src/terminal_view.rs` | pane rendering, mouse, selection, scrollbar, split dividers |
+| `crates/ui/src/terminal_view.rs` | pane rendering, mouse, selection; splits are nested Kit resizable groups and the scrollbar is the Kit scrollbar driven by `TerminalScroll` |
 | `crates/ui/src/components.rs` | shared pieces: `icon_button`, `close_button`, `truncated`, `pane_menu`, `log_failure` |
 | `crates/ui/src/i18n/` | `t`/`tf`, the current language, `crates/ui/locales/<code>.json`, one flat `key: text` file per language (`en.json` is the reference) |
 | `crates/ui/src/{find,selection,layout,settings,theme,model,assets}.rs` | find bar, selection math, split tree (`Node`), Settings pages, themes, `AppModel`, icons |

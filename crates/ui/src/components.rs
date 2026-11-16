@@ -3,6 +3,7 @@
 use gpui_kit::{
   component::{
     button::{Button, ButtonVariants as _},
+    label::Label,
     menu::PopupMenu,
     IconName, Sizable as _,
   },
@@ -31,8 +32,8 @@ pub(crate) fn close_button(id: impl Into<ElementId>, on_click: impl Fn(&ClickEve
 }
 
 /// A row of text that shrinks to the space it is given and ends with an ellipsis.
-pub(crate) fn truncated() -> Div {
-  div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis()
+pub(crate) fn truncated(text: impl Into<SharedString>) -> Label {
+  Label::new(text).flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis()
 }
 
 /// The window, tab, split and editing actions of a terminal pane, for its context and dropdown menus.

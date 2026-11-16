@@ -40,13 +40,7 @@ impl Workspace {
     let middle = if self.tabs.len() > 1 {
       self.render_tab_bar(cx).into_any_element()
     } else {
-      truncated()
-        .text_center()
-        .text_sm()
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(theme.foreground.opacity(0.6))
-        .child(self.title())
-        .into_any_element()
+      truncated(self.title()).text_center().text_sm().font_weight(FontWeight::SEMIBOLD).text_color(theme.foreground.opacity(0.6)).into_any_element()
     };
 
     TitleBar::new().h(TOOLBAR_HEIGHT).pl(BAND_INSET_CLEARING_LIGHTS).pr_3().bg(background).border_b_1().border_color(band_line(&theme)).child(
@@ -109,7 +103,7 @@ impl Workspace {
               .min_w_0()
               .gap_1()
               .when_some(activity, |this, character| this.child(character.to_string()))
-              .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_ellipsis().child(self.tab_title(tab))),
+              .child(truncated(self.tab_title(tab))),
           )
           .when(!pinned, |this| {
             this.child(

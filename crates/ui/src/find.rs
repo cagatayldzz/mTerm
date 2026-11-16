@@ -9,6 +9,7 @@ use gpui_kit::{
     button::{Button, ButtonVariants},
     h_flex,
     input::{Input, InputEvent, InputState},
+    label::Label,
     ActiveTheme, IconName, Selectable as _, Sizable,
   },
   *,
@@ -136,7 +137,7 @@ impl Workspace {
         .bg(theme.popover)
         .shadow_md()
         .child(div().w_48().child(Input::new(&find.input)))
-        .child(div().w_16().text_xs().text_color(theme.muted_foreground).child(status))
+        .child(Label::new(status).w_16().text_xs().text_color(theme.muted_foreground))
         .child(Button::new("find-case").label("Aa").ghost().xsmall().selected(find.case_sensitive).tooltip(t("find.match_case")).on_click(
           cx.listener(|this, _, window, cx| {
             if let Some(find) = &mut this.find {
@@ -147,7 +148,7 @@ impl Workspace {
         ))
         .child(
           Button::new("find-older")
-            .label("↑")
+            .icon(IconName::ArrowUp)
             .ghost()
             .xsmall()
             .tooltip(t("find.older"))
@@ -155,7 +156,7 @@ impl Workspace {
         )
         .child(
           Button::new("find-newer")
-            .label("↓")
+            .icon(IconName::ArrowDown)
             .ghost()
             .xsmall()
             .tooltip(t("find.newer"))
