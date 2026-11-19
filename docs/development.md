@@ -4,7 +4,7 @@
 
 Supported and tested: macOS 15+ on Apple Silicon. Intel, Linux and Windows are unsupported. Minimum system version: `LSMinimumSystemVersion` in `apps/mterm/macos/Info.plist` (`scripts/app.sh` links against it). The terminal font is Menlo.
 
-Requirements: Command Line Tools (not Xcode), Rust 1.92+ (stable), Bun. After cloning run `bun install --frozen-lockfile`.
+Requirements: Command Line Tools (not Xcode), Rust 1.92+ (stable), Bun (only to run the `bun run` tasks below; the project's own scripts are shell).
 
 ## Commands
 
@@ -12,9 +12,9 @@ Requirements: Command Line Tools (not Xcode), Rust 1.92+ (stable), Bun. After cl
 | --- | --- |
 | `bun run dev` | debug build, launch `dist/mTerm.app` |
 | `bun run build` | release build → `dist/mTerm.app` |
-| `bun run check` | TypeScript, `cargo fmt`, clippy, tests (run before finishing a change) |
+| `bun run check` | script tests, `cargo fmt`, clippy, tests (run before finishing a change) |
 | `bun run test` | `cargo test --locked --workspace` |
-| `bun run update` | `cargo upgrade --incompatible` (needs `cargo install cargo-edit`), `cargo update`, `bun update` |
+| `bun run update` | `cargo upgrade --incompatible` (needs `cargo install cargo-edit`), `cargo update` |
 | `bun run commit` | `git add -A && oco --yes` |
 
 ## Scripts
@@ -23,10 +23,10 @@ Requirements: Command Line Tools (not Xcode), Rust 1.92+ (stable), Bun. After cl
 | --- | --- | --- |
 | `scripts/app.sh` | shell | build, bundle, sign, launch, check (`--dev`, `[debug|release] --build`, `--check`) |
 | `scripts/notarize-app.sh` | shell | sign and notarize the app bundle (macOS tools) |
-| `scripts/release.ts` | TypeScript | the only script with logic beyond shell: version bump, release notes, packaging, checksums (`prepare`, `notes`, `package`, `finalize`) |
-| `scripts/tests/*.test.ts` | TypeScript | `bun test scripts`; type-checked with `bun run typecheck` |
+| `scripts/release.sh` | shell | version bump, release notes, packaging, checksums (`prepare`, `notes`, `package`, `finalize`) |
+| `scripts/tests/*.sh` | shell | `bash scripts/tests/run.sh`: version selection, notes, packaging, notarization and workflow guarantees |
 
-Use shell for macOS tool orchestration and TypeScript for anything that parses data or calls APIs; keep all TypeScript in `release.ts`, not in new scripts.
+The project is Rust and shell only: write new automation in shell.
 
 ## Packages
 

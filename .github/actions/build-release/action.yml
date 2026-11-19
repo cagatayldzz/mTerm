@@ -14,9 +14,6 @@ runs:
       with:
         name: release-inputs
         path: .
-    - uses: oven-sh/setup-bun@v2
-      with:
-        bun-version: 1.4.4
     - name: Install stable Rust
       shell: bash
       run: |
@@ -27,7 +24,7 @@ runs:
         shared-key: release-macos-${{ inputs.arch }}
     - name: Build macOS application
       shell: bash
-      run: bun run build
+      run: bash scripts/app.sh release --build
     - name: Sign and notarize macOS application
       shell: bash
       run: bash scripts/notarize-app.sh
@@ -35,7 +32,7 @@ runs:
       env:
         RELEASE_TAG: ${{ inputs.release-tag }}
       shell: bash
-      run: bun scripts/release.ts package
+      run: bash scripts/release.sh package
     - uses: actions/upload-artifact@v7
       with:
         name: release-macos-${{ inputs.arch }}

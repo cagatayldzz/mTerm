@@ -5,15 +5,10 @@
   "scripts": {
     "dev": "bash scripts/app.sh --dev",
     "build": "bash scripts/app.sh release --build",
-    "update": "cargo upgrade --incompatible && cargo update && bun update",
-    "release": "bun scripts/release.ts",
-    "typecheck": "tsc --noEmit",
+    "update": "cargo upgrade --incompatible && cargo update",
+    "release": "bash scripts/release.sh",
     "check": "bash scripts/app.sh --check",
-    "test": "cargo test --locked --workspace",
+    "test": "bash scripts/tests/run.sh && cargo test --locked --workspace",
     "commit": "git add -A && oco --yes"
-  },
-  "devDependencies": {
-    "@types/bun": "^1.4.4",
-    "typescript": "^7.0.2"
   }
 }
