@@ -8,7 +8,7 @@ To publish a release, run `bun run release` from a clean `main` (requires
 
 The version bump is derived from commit messages since the last tag
 (`feat:` → minor, `type!:` / `BREAKING CHANGE:` → major, otherwise patch).
-Release notes are generated from commit titles with OpenAI. The build produces a
+Release notes are written from commit titles, grouped by their type; nothing is sent to an outside service. The build produces a
 macOS Apple Silicon ZIP, signed with Developer ID and notarized, and a
 `SHA256SUMS.txt`. Nothing is published unless the checks and the build pass.
 
@@ -31,7 +31,6 @@ Required repository secrets:
 
 | Secret | Purpose |
 | --- | --- |
-| `OPENAI_API_KEY` | Release notes |
 | `APPLE_CERTIFICATE_BASE64` | Base64-encoded Developer ID Application `.p12` |
 | `APPLE_CERTIFICATE_PASSWORD` | Password for the `.p12` |
 | `APPLE_ID` | Apple Developer account email |
